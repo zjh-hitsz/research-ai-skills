@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Work Handoff"
+  short_description: "Freeze audited research context for continuation"
+  default_prompt: "Use $handoff-research-work to freeze an audited research selection into a verifiable, non-executing handoff package."

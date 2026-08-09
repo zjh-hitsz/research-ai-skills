@@ -1,0 +1,23 @@
+{
+  "report_version": "0.1.0",
+  "mapping_id": "replace-with-mapping-id",
+  "source_integral": null,
+  "target_integral": null,
+  "relative_error": null,
+  "coverage": 0.0,
+  "criterion": {"description": "Replace with the declared integral criterion.", "operator": "lte", "threshold": "replace-with-numeric-threshold", "source_ref": "replace-with-criteria-source"},
+  "status": "PARTIAL",
+  "reason_codes": ["MISSING_INPUT"],
+  "gate": {
+    "gate_id": "replace-with-integral-gate-id",
+    "category": "conservation",
+    "required": true,
+    "status": "PARTIAL",
+    "reason_codes": ["MISSING_INPUT"],
+    "measured_value": null,
+    "criterion": {"description": "Replace with the declared integral criterion.", "operator": "lte", "threshold": "replace-with-numeric-threshold", "source_ref": "replace-with-criteria-source"},
+    "units": "relative-error",
+    "evidence_refs": [],
+    "limitations": ["Template only; no integral was evaluated."]
+  }
+}

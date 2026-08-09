@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Research Project"
+  short_description: "Read-only research project inventory and risk audit"
+  default_prompt: "Use $audit-research-project to inventory this research project and produce a read-only risk and archive-recommendation report."

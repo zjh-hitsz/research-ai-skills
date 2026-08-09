@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "field_id": "replace-with-field-id",
+  "source_artifact_id": "replace-with-source-artifact-id",
+  "source_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "source_tool": {"name": "replace-with-source-tool", "version": "replace-with-version", "export_method": "replace-with-export-method"},
+  "field": {"name": "replace-with-field-name", "physical_role": "replace-with-role", "components": ["value"], "units": "replace-with-field-units", "sign_convention": "replace-with-sign-convention"},
+  "coordinates": {"system": "cartesian", "dimensions": 2, "axis_order": ["x", "y"], "origin": [0.0, 0.0], "direction": [1, 1], "units": "replace-with-coordinate-units"},
+  "grid": {"type": "regular_2d", "shape": [1, 1], "spacing": [1.0, 1.0], "domain": {"minimum": [0.0, 0.0], "maximum": [1.0, 1.0]}, "cell_or_node_centered": "cell"},
+  "target_grid_ref": "replace-with-target-grid-ref",
+  "mapping": {"method": "area-overlap-piecewise-constant", "parameters": {}, "outside_domain_policy": "reject", "missing_value_policy": "reject"},
+  "verification": {"source_integral": null, "target_integral": null, "relative_error": null, "coverage": 0.0, "gate_report_ref": "replace-with-gate-report-ref"},
+  "output": {"created": false, "path": null, "hash": null, "format": "text/csv"},
+  "provenance_ref": "replace-with-provenance-ref",
+  "status": "PARTIAL",
+  "reason_codes": ["MISSING_INPUT"],
+  "limitations": ["Template only; no mapping was executed."],
+  "created_at": "2000-01-01T00:00:00Z"
+}

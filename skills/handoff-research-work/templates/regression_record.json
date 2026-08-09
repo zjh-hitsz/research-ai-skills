@@ -1,0 +1,15 @@
+{
+  "regression_id": "replace-with-regression-id",
+  "command_record": {
+    "entrypoint_ref": "replace-with-entrypoint-id",
+    "invocation_summary": "Record the upstream invocation as inert text; do not execute it.",
+    "authorized": true,
+    "exit_code": null
+  },
+  "expected": "expected:replace-with-reference",
+  "actual": null,
+  "status": "PARTIAL",
+  "reason_codes": ["MISSING_EVIDENCE"],
+  "artifact_refs": [],
+  "timestamp": "2000-01-01T00:00:00Z"
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "handoff_id": "replace-me",
+  "profile": "minimal",
+  "project_audit_ref": "audit:replace-me",
+  "read_order": ["input-context"],
+  "entrypoints": [
+    {
+      "entrypoint_id": "entry-context",
+      "description": "Read the frozen context before continuing.",
+      "locator": {"relative_path": "docs/context.md"}
+    }
+  ],
+  "environment": {
+    "toolchain": [],
+    "dependencies": [],
+    "setup_instructions": "Do not execute setup instructions automatically."
+  },
+  "inputs": [
+    {
+      "artifact_id": "input-context",
+      "locator": {"relative_path": "docs/context.md"},
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "provenance_ref": "prov:replace-me"
+    }
+  ],
+  "outputs": [],
+  "regressions": [],
+  "reuse": [],
+  "do_not_reuse": [],
+  "open_decisions": [],
+  "private_dependencies": [],
+  "next_action": "Replace with one bounded next action.",
+  "verification": {
+    "status": "SKIPPED",
+    "reason_codes": ["MISSING_INPUT"],
+    "checked_at": "2000-01-01T00:00:00Z"
+  },
+  "limitations": ["Template only; not a verified handoff."],
+  "created_at": "2000-01-01T00:00:00Z"
+}

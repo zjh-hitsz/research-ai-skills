@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "evidence-manifest-v1.schema.json",
+  "title": "Structured Evidence Manifest v1",
+  "description": "A portable evidence identity and parse-status record. It records supplied provenance but does not inspect or scientifically qualify the artifact.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_id",
+    "sha256",
+    "media_type",
+    "parse_status",
+    "produced_by",
+    "produced_at",
+    "stage"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "artifact_id": {"$ref": "#/$defs/stableId"},
+    "ref": {"type": ["string", "null"], "minLength": 1},
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[^\\s/]+/[^\\s/]+$"
+    },
+    "parse_status": {"$ref": "common-status-v1.schema.json#/$defs/statusWithReasons"},
+    "produced_by": {"$ref": "#/$defs/producer"},
+    "produced_at": {"type": "string", "format": "date-time"},
+    "stage": {"type": "string", "minLength": 1, "maxLength": 120}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "parse_status": {
+            "properties": {"status": {"const": "FAIL"}},
+            "required": ["status"]
+          }
+        },
+        "required": ["parse_status"]
+      },
+      "then": {
+        "properties": {
+          "parse_status": {
+            "properties": {
+              "reason_codes": {"contains": {"const": "EVIDENCE_PARSE_FAILED"}}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"oneOf": [{"$ref": "#/$defs/semver"}, {"type": "null"}]},
+        "run_id": {"oneOf": [{"$ref": "#/$defs/stableId"}, {"type": "null"}]}
+      }
+    }
+  }
+}

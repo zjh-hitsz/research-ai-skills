@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.1.0",
+  "report_id": "replace-with-report-id",
+  "producer": {
+    "skill": "validate-simulation-evidence",
+    "skill_version": "0.2.0"
+  },
+  "subject": {
+    "type": "replace-with-subject-type",
+    "id": "replace-with-subject-id",
+    "input_manifest_refs": []
+  },
+  "lineage": {
+    "workflow_id": "replace-with-workflow-id",
+    "attempt_id": "replace-with-attempt-id",
+    "stage": "replace-with-stage",
+    "snapshot_at": "2000-01-01T00:00:00Z",
+    "subject_revision": "replace-with-subject-revision",
+    "supersedes_report_id": null
+  },
+  "criteria_source": {
+    "type": "user-defined",
+    "reference": "replace-with-criteria-source",
+    "version": null,
+    "notes": "Replace every placeholder before evaluation."
+  },
+  "gates": [
+    {
+      "gate_id": "replace-with-gate-id",
+      "category": "evidence-integrity",
+      "required": true,
+      "status": "PARTIAL",
+      "reason_codes": ["MISSING_INPUT"],
+      "measured_value": null,
+      "criterion": {
+        "description": "Replace with the declared criterion.",
+        "operator": null,
+        "threshold": null,
+        "source_ref": "replace-with-criterion-source"
+      },
+      "units": null,
+      "evidence_refs": [
+        {
+          "schema_version": "1.0.0",
+          "artifact_id": "replace-with-artifact-id",
+          "ref": "replace-with-stable-evidence-ref",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "media_type": "application/json",
+          "parse_status": {
+            "status": "PARTIAL",
+            "reason_codes": ["MISSING_INPUT"]
+          },
+          "produced_by": {
+            "name": "replace-with-producer",
+            "version": null,
+            "run_id": null
+          },
+          "produced_at": "2000-01-01T00:00:00Z",
+          "stage": "replace-with-stage"
+        }
+      ],
+      "limitations": ["Placeholder gate; not evaluated."]
+    }
+  ],
+  "claim_boundary": {
+    "claims": [
+      {
+        "claim_id": "replace-with-claim-id",
+        "text": "Replace with a bounded evidence statement.",
+        "status": "conditional",
+        "supporting_gate_ids": ["replace-with-gate-id"],
+        "limitations": ["Placeholder claim; not reviewed."]
+      }
+    ]
+  },
+  "limitations": ["Replace this template with manifest-driven evidence."],
+  "created_at": "2000-01-01T00:00:00Z"
+}

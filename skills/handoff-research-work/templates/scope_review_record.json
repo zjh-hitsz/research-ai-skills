@@ -1,0 +1,9 @@
+{
+  "scope_id": "replace-with-stable-scope-id",
+  "reviewed_boundaries": ["REPLACE_WITH_UPSTREAM_REASON_CODE"],
+  "accepted_exclusions": ["replace-with-reviewed-exclusion-id"],
+  "blocked_items": [],
+  "reviewer_role": "human-research-reviewer",
+  "timestamp": "2000-01-01T00:00:00Z",
+  "decision": "accepted"
+}

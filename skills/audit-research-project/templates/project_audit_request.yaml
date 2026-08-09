@@ -1,0 +1,37 @@
+{
+  "request_version": "0.1.0",
+  "audit_id": "replace-with-audit-id",
+  "project": {
+    "project_id": "replace-with-project-id",
+    "root": "project",
+    "known_entrypoints": ["README.md"],
+    "expected_outputs": [
+      {"path": "outputs/replace-me.json", "required": false, "rationale": "replace with caller declaration"}
+    ]
+  },
+  "scan": {
+    "follow_links": false,
+    "exclude": ["excluded/**"],
+    "hash": {"mode": "below-size", "max_bytes": 1048576}
+  },
+  "classification": {
+    "cache_directory_names": ["cache", ".cache", "__pycache__"],
+    "source_directory_names": ["source", "sources", "input", "inputs"],
+    "result_directory_names": ["result", "results", "output", "outputs"],
+    "profile": {
+      "profile_id": "replace-with-project-profile-id",
+      "include_rules": ["src/**", "model/**", "report/**", "result/**"],
+      "exclude_rules": [".venv/**", "node_modules/**", "cache/**"],
+      "priority_paths": ["src/**", "model/**", "report/**"],
+      "environment_folders": [".venv", "node_modules"],
+      "cache_folders": ["cache", ".cache", "__pycache__"],
+      "source_hints": ["src/**"]
+    }
+  },
+  "risk": {
+    "large_file_bytes": 104857600,
+    "text_scan_max_bytes": 1048576,
+    "text_extensions": [".md", ".txt", ".json", ".yaml", ".yml", ".py"]
+  },
+  "report": {"created_at": "2000-01-01T00:00:00Z"}
+}

@@ -1,0 +1,5 @@
+column,role,units,description,required
+x,coordinate,replace-with-coordinate-units,First declared coordinate axis,true
+y,coordinate,replace-with-coordinate-units,Second declared coordinate axis,true
+value,scalar-field,replace-with-field-units,Declared scalar cell-average value,true
+coverage,mapping-diagnostic,1,Target-cell area covered by source cells,false

@@ -1,0 +1,21 @@
+registry_version: 1.0.0
+repository_version: 0.1.0
+skills:
+  - name: validate-simulation-evidence
+    version: 0.2.0
+    status: implementation
+    dependencies: []
+  - name: map-physical-fields
+    version: 0.1.0
+    status: implementation
+    dependencies:
+      - validate-simulation-evidence
+  - name: audit-research-project
+    version: 0.1.0
+    status: implementation
+    dependencies: []
+  - name: handoff-research-work
+    version: 0.1.0
+    status: implementation
+    dependencies:
+      - audit-research-project

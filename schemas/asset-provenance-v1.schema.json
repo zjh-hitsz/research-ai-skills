@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "asset-provenance-v1.schema.json",
+  "title": "Reusable Asset Provenance v1",
+  "description": "A private provenance record that separates source identity, extraction decision, transformations, privacy, rights, and verification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provenance_id",
+    "source",
+    "candidate_for",
+    "decision",
+    "transformations",
+    "project_assumptions_removed",
+    "privacy",
+    "rights",
+    "verification",
+    "derived_artifact_hash",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "provenance_id": {"$ref": "#/$defs/stableId"},
+    "source": {"$ref": "#/$defs/source"},
+    "candidate_for": {"$ref": "#/$defs/candidateFor"},
+    "decision": {"$ref": "#/$defs/decision"},
+    "transformations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/transformation"}
+    },
+    "project_assumptions_removed": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "privacy": {"$ref": "#/$defs/privacy"},
+    "rights": {"$ref": "#/$defs/rights"},
+    "verification": {"$ref": "#/$defs/verification"},
+    "derived_artifact_hash": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "properties": {"type": {"enum": ["knowledge", "result"]}},
+            "required": ["type"]
+          }
+        },
+        "required": ["source"]
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "properties": {"action": {"const": "exclude"}},
+            "required": ["action"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "rights": {
+            "properties": {"redistributable": {"const": true}},
+            "required": ["redistributable"]
+          }
+        },
+        "required": ["rights"]
+      },
+      "then": {
+        "properties": {
+          "rights": {
+            "properties": {"license_known": {"const": true}},
+            "required": ["license_known"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "artifact_id", "locator_private", "hash", "type"],
+      "properties": {
+        "project_id": {"$ref": "#/$defs/stableId"},
+        "artifact_id": {"$ref": "#/$defs/stableId"},
+        "locator_private": {
+          "type": ["string", "null"],
+          "description": "Private registry locator. It must be removed or set to null in any distributed record."
+        },
+        "hash": {"$ref": "#/$defs/sha256"},
+        "type": {"type": "string", "enum": ["script", "reference", "template", "eval", "knowledge", "result"]}
+      }
+    },
+    "candidateFor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill", "target_role"],
+      "properties": {
+        "skill": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "target_role": {"type": "string", "enum": ["script", "reference", "template", "eval"]}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "rationale", "decided_by", "decided_at"],
+      "properties": {
+        "action": {"type": "string", "enum": ["copy", "refactor", "private-eval-only", "exclude"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "decided_by": {"type": "string", "minLength": 1},
+        "decided_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "transformation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "description"],
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": ["deidentify", "remove-absolute-paths", "remove-project-constants", "generalize-interface", "replace-data-with-synthetic", "license-review", "other"]
+        },
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contains_personal_path", "contains_unpublished_data", "contains_credentials", "review_notes"],
+      "properties": {
+        "contains_personal_path": {"type": "boolean"},
+        "contains_unpublished_data": {"type": "boolean"},
+        "contains_credentials": {"type": "boolean"},
+        "review_notes": {"type": "string"}
+      }
+    },
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "license_known", "license_identifier", "redistributable", "restrictions"],
+      "properties": {
+        "owner": {"type": "string", "minLength": 1},
+        "license_known": {"type": "boolean"},
+        "license_identifier": {"type": ["string", "null"]},
+        "redistributable": {"type": "boolean"},
+        "restrictions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_codes", "reviewer", "reviewed_at", "tests"],
+      "properties": {
+        "status": {"$ref": "common-status-v1.schema.json#/$defs/status"},
+        "reason_codes": {"$ref": "common-status-v1.schema.json#/$defs/reasonCodes"},
+        "reviewer": {"type": "string", "minLength": 1},
+        "reviewed_at": {"type": ["string", "null"], "format": "date-time"},
+        "tests": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "PASS"}}, "required": ["status"]},
+          "then": {"properties": {"reason_codes": {"maxItems": 0}}},
+          "else": {"properties": {"reason_codes": {"minItems": 1}}}
+        }
+      ]
+    }
+  }
+}

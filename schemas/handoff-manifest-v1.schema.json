@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "handoff-manifest-v1.schema.json",
+  "title": "Research Work Handoff Manifest v1",
+  "description": "A minimal or full research handoff contract that records portable identities, environment, regression evidence, exclusions, and open decisions without embedding large artifacts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "handoff_id",
+    "profile",
+    "project_audit_ref",
+    "read_order",
+    "entrypoints",
+    "environment",
+    "inputs",
+    "outputs",
+    "regressions",
+    "reuse",
+    "do_not_reuse",
+    "open_decisions",
+    "private_dependencies",
+    "next_action",
+    "verification",
+    "limitations",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "handoff_id": {"$ref": "#/$defs/stableId"},
+    "profile": {"type": "string", "enum": ["minimal", "full"]},
+    "project_audit_ref": {"type": "string", "minLength": 1},
+    "read_order": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/stableId"},
+      "uniqueItems": true
+    },
+    "entrypoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/entrypoint"}
+    },
+    "environment": {"$ref": "#/$defs/environment"},
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/inputArtifact"}
+    },
+    "outputs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/outputArtifact"}
+    },
+    "regressions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/regressionRecord"}
+    },
+    "reuse": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "do_not_reuse": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "open_decisions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/openDecision"}
+    },
+    "private_dependencies": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/privateDependency"}
+    },
+    "next_action": {"type": "string", "minLength": 1},
+    "verification": {"$ref": "#/$defs/verification"},
+    "limitations": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"profile": {"const": "full"}}, "required": ["profile"]},
+      "then": {
+        "properties": {
+          "outputs": {"minItems": 1},
+          "regressions": {"minItems": 1}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "sha256": {"type": "string", "pattern": "^[A-Fa-f0-9]{64}$"},
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:[\\\\/])(?![\\\\/]).+"
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "relative_path": {"$ref": "#/$defs/relativePath"},
+        "external_ref": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:.+"}
+      },
+      "oneOf": [
+        {"required": ["relative_path"], "not": {"required": ["external_ref"]}},
+        {"required": ["external_ref"], "not": {"required": ["relative_path"]}}
+      ]
+    },
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint_id", "description", "locator"],
+      "properties": {
+        "entrypoint_id": {"$ref": "#/$defs/stableId"},
+        "description": {"type": "string", "minLength": 1},
+        "locator": {"$ref": "#/$defs/locator"}
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependency_id", "required", "description"],
+      "properties": {
+        "dependency_id": {"$ref": "#/$defs/stableId"},
+        "required": {"type": "boolean"},
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["toolchain", "dependencies", "setup_instructions"],
+      "properties": {
+        "toolchain": {"type": "array", "items": {"$ref": "#/$defs/tool"}},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}},
+        "setup_instructions": {"type": "string", "minLength": 1}
+      }
+    },
+    "inputArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "locator", "hash", "provenance_ref"],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/stableId"},
+        "locator": {"$ref": "#/$defs/locator"},
+        "hash": {"$ref": "#/$defs/sha256"},
+        "provenance_ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "outputArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "locator", "status", "reason_codes", "hash", "generation_rule", "provenance_ref"],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/stableId"},
+        "locator": {"oneOf": [{"$ref": "#/$defs/locator"}, {"type": "null"}]},
+        "status": {"$ref": "common-status-v1.schema.json#/$defs/status"},
+        "reason_codes": {"$ref": "common-status-v1.schema.json#/$defs/reasonCodes"},
+        "hash": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "generation_rule": {"type": "string", "minLength": 1},
+        "provenance_ref": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "PASS"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "reason_codes": {"maxItems": 0},
+              "locator": {"$ref": "#/$defs/locator"},
+              "hash": {"$ref": "#/$defs/sha256"}
+            }
+          },
+          "else": {"properties": {"reason_codes": {"minItems": 1}}}
+        }
+      ]
+    },
+    "commandRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint_ref", "invocation_summary", "authorized", "executed_at"],
+      "properties": {
+        "entrypoint_ref": {"$ref": "#/$defs/stableId"},
+        "invocation_summary": {"type": "string", "minLength": 1},
+        "authorized": {"type": "boolean"},
+        "executed_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "regressionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["regression_id", "command_record", "exit_code", "expected_ref", "actual_ref", "status", "reason_codes"],
+      "properties": {
+        "regression_id": {"$ref": "#/$defs/stableId"},
+        "command_record": {"$ref": "#/$defs/commandRecord"},
+        "exit_code": {"type": ["integer", "null"]},
+        "expected_ref": {"type": "string", "minLength": 1},
+        "actual_ref": {"type": ["string", "null"]},
+        "status": {"$ref": "common-status-v1.schema.json#/$defs/status"},
+        "reason_codes": {"$ref": "common-status-v1.schema.json#/$defs/reasonCodes"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "PASS"}}, "required": ["status"]},
+          "then": {"properties": {"reason_codes": {"maxItems": 0}}},
+          "else": {"properties": {"reason_codes": {"minItems": 1}}}
+        }
+      ]
+    },
+    "openDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_id", "question", "status", "owner"],
+      "properties": {
+        "decision_id": {"$ref": "#/$defs/stableId"},
+        "question": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["open", "resolved", "deferred"]},
+        "owner": {"type": "string", "minLength": 1}
+      }
+    },
+    "privateDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependency_id", "required", "availability_status", "reason_codes"],
+      "properties": {
+        "dependency_id": {"$ref": "#/$defs/stableId"},
+        "required": {"type": "boolean"},
+        "availability_status": {"$ref": "common-status-v1.schema.json#/$defs/status"},
+        "reason_codes": {"$ref": "common-status-v1.schema.json#/$defs/reasonCodes"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"availability_status": {"const": "PASS"}}, "required": ["availability_status"]},
+          "then": {"properties": {"reason_codes": {"maxItems": 0}}},
+          "else": {"properties": {"reason_codes": {"minItems": 1}}}
+        }
+      ]
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_codes", "checked_at"],
+      "properties": {
+        "status": {"$ref": "common-status-v1.schema.json#/$defs/status"},
+        "reason_codes": {"$ref": "common-status-v1.schema.json#/$defs/reasonCodes"},
+        "checked_at": {"type": "string", "format": "date-time"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "PASS"}}, "required": ["status"]},
+          "then": {"properties": {"reason_codes": {"maxItems": 0}}},
+          "else": {"properties": {"reason_codes": {"minItems": 1}}}
+        }
+      ]
+    }
+  }
+}

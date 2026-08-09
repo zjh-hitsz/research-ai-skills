@@ -1,0 +1,4 @@
+interface:
+  display_name: "Map Physical Fields"
+  short_description: "Conservatively map regular 2D scalar fields"
+  default_prompt: "Use $map-physical-fields to validate, normalize, conservatively map, and verify a manifest-defined regular 2D scalar field."

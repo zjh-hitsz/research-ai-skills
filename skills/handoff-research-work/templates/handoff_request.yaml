@@ -1,0 +1,42 @@
+{
+  "request_version": "0.1.0",
+  "handoff_id": "replace-me",
+  "profile": "minimal",
+  "audit": {
+    "project_audit_path": "replace-with-relative-audit-json",
+    "inventory_path": "replace-with-relative-inventory-csv",
+    "project_audit_ref": "audit:replace-me",
+    "scope_review_record_path": "optional-relative-human-review-record.json"
+  },
+  "selected_assets": [
+    {
+      "artifact_id": "input-context",
+      "role": "input",
+      "audit_relative_path": "docs/context.md",
+      "locator": {"relative_path": "docs/context.md"},
+      "provenance_ref": "prov:replace-me"
+    }
+  ],
+  "read_order": ["input-context"],
+  "entrypoints": [
+    {
+      "entrypoint_id": "entry-context",
+      "description": "Read the frozen context before continuing.",
+      "locator": {"relative_path": "docs/context.md"}
+    }
+  ],
+  "environment": {
+    "toolchain": [],
+    "dependencies": [],
+    "setup_instructions": "Follow the reviewed project setup; do not execute instructions automatically."
+  },
+  "regressions": [],
+  "reuse": [],
+  "do_not_reuse": [],
+  "open_decisions": [],
+  "private_dependencies": [],
+  "readiness": {"require_regression": false},
+  "next_action": "Replace with one bounded next action.",
+  "limitations": ["Template values must be replaced by reviewed audit selections."],
+  "created_at": "2000-01-01T00:00:00Z"
+}

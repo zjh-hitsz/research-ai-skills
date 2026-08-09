@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common-status-v1.schema.json",
+  "title": "Personal Research AI Common Status v1",
+  "description": "Shared execution status and machine-readable reason-code contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "reason_codes"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "status": {"$ref": "#/$defs/status"},
+    "reason_codes": {"$ref": "#/$defs/reasonCodes"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "PASS"}}, "required": ["status"]},
+      "then": {"properties": {"reason_codes": {"maxItems": 0}}},
+      "else": {"properties": {"reason_codes": {"minItems": 1}}}
+    }
+  ],
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "PARTIAL", "SKIPPED"]
+    },
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "examples": [
+        "MISSING_INPUT",
+        "HASH_MISMATCH",
+        "UNSUPPORTED_VERSION",
+        "UNVERIFIED",
+        "UNSOLVED",
+        "EVIDENCE_PARSE_FAILED",
+        "EVIDENCE_SNAPSHOT_MISMATCH"
+      ],
+      "x-foundation-v0.2-reason-codes": [
+        "EVIDENCE_PARSE_FAILED",
+        "EVIDENCE_SNAPSHOT_MISMATCH"
+      ]
+    },
+    "reasonCodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/reasonCode"},
+      "uniqueItems": true
+    },
+    "statusWithReasons": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_codes"],
+      "properties": {
+        "status": {"$ref": "#/$defs/status"},
+        "reason_codes": {"$ref": "#/$defs/reasonCodes"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "PASS"}}, "required": ["status"]},
+          "then": {"properties": {"reason_codes": {"maxItems": 0}}},
+          "else": {"properties": {"reason_codes": {"minItems": 1}}}
+        }
+      ]
+    }
+  }
+}

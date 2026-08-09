@@ -1,0 +1,65 @@
+{
+  "request_version": "0.1.0",
+  "mapping_id": "replace-with-mapping-id",
+  "source": {
+    "artifact_id": "replace-with-source-artifact-id",
+    "table": "inputs/source_field.csv",
+    "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "media_type": "text/csv",
+    "produced_by": {"name": "replace-with-exporter", "version": null, "run_id": null},
+    "produced_at": "2000-01-01T00:00:00Z",
+    "stage": "source-export",
+    "source_tool": {"name": "replace-with-source-tool", "version": "replace-with-version", "export_method": "replace-with-export-method"},
+    "columns": {"coordinates": ["x", "y"], "value": "value"},
+    "field": {"name": "replace-with-field-name", "physical_role": "replace-with-role", "components": ["value"], "units": "replace-with-field-units", "sign_convention": "replace-with-sign-convention"},
+    "coordinates": {"system": "cartesian", "dimensions": 2, "axis_order": ["x", "y"], "origin": [0.0, 0.0], "direction": [1, 1], "units": "replace-with-coordinate-units"},
+    "grid": {"type": "regular_2d", "shape": [1, 1], "spacing": [1.0, 1.0], "domain": {"minimum": [0.0, 0.0], "maximum": [1.0, 1.0]}, "cell_or_node_centered": "cell"},
+    "validation_criterion": {"description": "The source table must satisfy the declared field identity and regular-grid contract.", "operator": "textual", "threshold": "declared request contract", "source_ref": "replace-with-criteria-source"}
+  },
+  "normalization": {
+    "output_table": "work/normalized_field.csv",
+    "transform": {"permutation": [0, 1], "scale": [1.0, 1.0], "offset": [0.0, 0.0]},
+    "output_grid": {"type": "regular_2d", "shape": [1, 1], "spacing": [1.0, 1.0], "domain": {"minimum": [0.0, 0.0], "maximum": [1.0, 1.0]}, "cell_or_node_centered": "cell"},
+    "criterion": {"description": "The explicit transform must produce the declared normalized grid.", "operator": "boolean", "threshold": true, "source_ref": "replace-with-criteria-source"}
+  },
+  "target": {
+    "grid_ref": "replace-with-target-grid-ref",
+    "field": {"name": "replace-with-field-name", "physical_role": "replace-with-role", "components": ["value"], "units": "replace-with-field-units", "sign_convention": "replace-with-sign-convention"},
+    "coordinates": {"system": "cartesian", "dimensions": 2, "axis_order": ["x", "y"], "origin": [0.0, 0.0], "direction": [1, 1], "units": "replace-with-coordinate-units"},
+    "grid": {"type": "regular_2d", "shape": [1, 1], "spacing": [1.0, 1.0], "domain": {"minimum": [0.0, 0.0], "maximum": [1.0, 1.0]}, "cell_or_node_centered": "cell"}
+  },
+  "mapping": {
+    "method": "area-overlap-piecewise-constant",
+    "parameters": {"source_value_semantics": "cell-average"},
+    "outside_domain_policy": "reject",
+    "missing_value_policy": "reject",
+    "output_table": "outputs/mapped_field.csv",
+    "coverage_criterion": {"description": "Target-area coverage must meet the caller-supplied requirement.", "operator": "gte", "threshold": "replace-with-numeric-threshold", "source_ref": "replace-with-criteria-source"}
+  },
+  "verification": {
+    "integral_criterion": {"description": "Relative source-to-target integral error must meet the caller-supplied requirement.", "operator": "lte", "threshold": "replace-with-numeric-threshold", "source_ref": "replace-with-criteria-source"}
+  },
+  "gate_report": {
+    "schema_version": "1.1.0",
+    "report_id": "replace-with-gate-report-id",
+    "producer": {"skill": "validate-simulation-evidence", "skill_version": "0.2.0"},
+    "subject": {"type": "physical-field-mapping", "id": "replace-with-mapping-id", "input_manifest_refs": ["field_mapping_request.yaml"]},
+    "lineage": {"workflow_id": "replace-with-workflow-id", "attempt_id": "replace-with-attempt-id", "stage": "field-mapping", "snapshot_at": "2000-01-01T00:00:00Z", "subject_revision": "replace-with-revision", "supersedes_report_id": null},
+    "criteria_source": {"type": "user-defined", "reference": "replace-with-criteria-source", "version": null, "notes": null},
+    "claim": {"claim_id": "replace-with-claim-id", "text": "Replace with a bounded statement about mapping evidence only.", "status": "conditional", "limitations": ["This claim does not establish physical correctness."]},
+    "limitations": ["The report covers mapping evidence, not scientific interpretation."],
+    "created_at": "2000-01-01T00:00:00Z"
+  },
+  "manifest": {
+    "field_id": "replace-with-field-id",
+    "provenance_ref": "replace-with-provenance-ref",
+    "validation_report": "work/field_table_validation.json",
+    "normalization_report": "work/coordinate_normalization.json",
+    "mapping_report": "work/mapping_report.json",
+    "integral_report": "work/integral_report.json",
+    "gate_report": "work/gate_report.json",
+    "output_format": "text/csv",
+    "limitations": ["Regular 2D cell-centered scalar field only."],
+    "created_at": "2000-01-01T00:00:00Z"
+  }
+}
