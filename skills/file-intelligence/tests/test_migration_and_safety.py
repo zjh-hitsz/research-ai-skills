@@ -182,6 +182,42 @@ class MigrationAndSafetyTests(unittest.TestCase):
             es_values = [(row["path_key"], row["size"]) for row in everything["records"]]
             self.assertEqual(fs_values, es_values)
 
+    def test_everything_and_filesystem_both_exclude_git_internal_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "project"
+            git_object = project / ".git" / "objects" / "aa" / "synthetic"
+            source = project / "source.py"
+            git_object.parent.mkdir(parents=True)
+            git_object.write_bytes(b"internal")
+            source.write_text("print('kept')\n", encoding="utf-8")
+            state = root / "state"
+            scope = [{"path": str(project.resolve()), "kind": "primary"}]
+            filesystem = _scan_filesystem(scope, state)
+
+            def fake_run(command: list[str], **_: object) -> SimpleNamespace:
+                export = Path(command[command.index("-export-json") + 1])
+                rows = []
+                for path in (git_object, source):
+                    item = path.stat()
+                    rows.append(
+                        {
+                            "filename": str(path.resolve()),
+                            "size": item.st_size,
+                            "date_modified": str(item.st_mtime_ns),
+                            "date_created": str(item.st_ctime_ns),
+                        }
+                    )
+                export.write_text(json.dumps(rows), encoding="utf-8-sig")
+                return SimpleNamespace(returncode=0, stderr=b"")
+
+            fake_es = root / "es.exe"
+            fake_es.write_bytes(b"synthetic")
+            with mock.patch("file_intelligence.engine.subprocess.run", side_effect=fake_run):
+                everything = _scan_everything(scope, state, fake_es)
+            self.assertEqual([row["path"] for row in filesystem["records"]], [str(source.resolve())])
+            self.assertEqual([row["path"] for row in everything["records"]], [str(source.resolve())])
+
     def test_access_denied_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

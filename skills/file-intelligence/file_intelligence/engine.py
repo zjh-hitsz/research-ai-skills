@@ -477,6 +477,8 @@ def _scan_everything(scopes: list[dict[str, str]], state_dir: Path, es_path: Pat
                 relative_parts = path.relative_to(Path(scope["path"])).parts
             except ValueError:
                 relative_parts = ()
+            if any(part.casefold() in EXCLUDED_DIRS for part in relative_parts):
+                continue
             aggregate_at = next(
                 ((index, aggregate_kind(part)) for index, part in enumerate(relative_parts[:-1]) if aggregate_kind(part)),
                 None,
