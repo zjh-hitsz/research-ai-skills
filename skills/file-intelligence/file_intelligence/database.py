@@ -13,6 +13,7 @@ from typing import Any
 
 SCHEMA_VERSION = 3
 APPLICATION_ID = 0x46494E54  # "FINT"
+RECONCILIATION_EXTENSION_VERSION = 1
 
 
 SCHEMA_V3 = """
@@ -313,6 +314,188 @@ CREATE TABLE IF NOT EXISTS project_tools (
     updated_at TEXT NOT NULL,
     PRIMARY KEY(project_id, tool_name)
 );
+CREATE TABLE IF NOT EXISTS file_card_semantics (
+    file_id TEXT PRIMARY KEY,
+    file_type TEXT,
+    tier INTEGER,
+    project_id TEXT,
+    workstream_id TEXT,
+    asset_role TEXT,
+    importance TEXT,
+    summary TEXT,
+    authority TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    last_changed TEXT,
+    logical_size INTEGER,
+    allocated_size INTEGER,
+    allocated_size_complete INTEGER,
+    rebuildable TEXT,
+    rebuild_cost TEXT,
+    canonical_status TEXT,
+    supersedes_json TEXT NOT NULL,
+    superseded_by_json TEXT NOT NULL,
+    version_family TEXT,
+    references_json TEXT NOT NULL,
+    referenced_by_json TEXT NOT NULL,
+    duplicate_group TEXT,
+    archive_membership TEXT,
+    producer_evidence_json TEXT NOT NULL,
+    sensor_links_json TEXT NOT NULL,
+    unresolved_questions_json TEXT NOT NULL,
+    source_signature_json TEXT NOT NULL,
+    content_identity TEXT,
+    content_identity_kind TEXT,
+    revision INTEGER NOT NULL,
+    semantic_fingerprint TEXT NOT NULL,
+    source_system TEXT NOT NULL,
+    source_revision INTEGER,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_card_semantics_project ON file_card_semantics(project_id, workstream_id, asset_role);
+CREATE INDEX IF NOT EXISTS idx_file_card_semantics_authority ON file_card_semantics(authority, canonical_status);
+CREATE INDEX IF NOT EXISTS idx_file_card_semantics_content ON file_card_semantics(content_identity_kind, content_identity);
+CREATE TABLE IF NOT EXISTS file_card_revisions (
+    file_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    source_system TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    reasons_json TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    semantic_fingerprint TEXT NOT NULL,
+    source_event_id TEXT,
+    PRIMARY KEY(file_id, revision, source_system)
+);
+CREATE INDEX IF NOT EXISTS idx_file_card_revisions_time ON file_card_revisions(recorded_at, file_id);
+CREATE TABLE IF NOT EXISTS file_card_evidence (
+    evidence_id TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL,
+    claim TEXT NOT NULL,
+    authority TEXT NOT NULL,
+    description TEXT NOT NULL,
+    source_ref TEXT,
+    confidence REAL NOT NULL,
+    observed_at TEXT NOT NULL,
+    semantic_eligible INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    source_system TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_card_evidence_subject ON file_card_evidence(file_id, claim, authority);
+CREATE TABLE IF NOT EXISTS file_path_history (
+    history_key TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    observed_from TEXT NOT NULL,
+    observed_to TEXT,
+    event_type TEXT NOT NULL,
+    source_event_id TEXT,
+    source_system TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_path_history_file ON file_path_history(file_id, observed_from);
+CREATE TABLE IF NOT EXISTS project_card_views (
+    project_id TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL,
+    semantic_fingerprint TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    authority TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    source_system TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_card_revisions (
+    project_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    source_system TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    reasons_json TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    semantic_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(project_id, revision, source_system)
+);
+CREATE TABLE IF NOT EXISTS project_relations (
+    relation_id TEXT PRIMARY KEY,
+    source_project_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    target_name TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    authority TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    evidence_json TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    source_system TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_relations_source ON project_relations(source_project_id, active);
+CREATE TABLE IF NOT EXISTS assertion_events (
+    event_key TEXT PRIMARY KEY,
+    assertion_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    source_text TEXT,
+    source_ref TEXT,
+    revoked_at TEXT,
+    payload_json TEXT NOT NULL,
+    source_system TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assertion_events_assertion ON assertion_events(assertion_id, recorded_at);
+CREATE TABLE IF NOT EXISTS sensor_capability_status (
+    machine_binding TEXT NOT NULL,
+    sensor_id TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    health TEXT NOT NULL,
+    available INTEGER NOT NULL,
+    version TEXT,
+    executable_hint TEXT,
+    failure_reason TEXT,
+    details_json TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY(machine_binding, sensor_id, capability)
+);
+CREATE TABLE IF NOT EXISTS sensor_observations (
+    observation_id TEXT PRIMARY KEY,
+    machine_binding TEXT NOT NULL,
+    sensor_id TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    subject_id TEXT,
+    outcome TEXT NOT NULL,
+    cache_status TEXT NOT NULL,
+    normalized_data_json TEXT,
+    confidence REAL NOT NULL,
+    observed_at TEXT NOT NULL,
+    raw_reference TEXT,
+    error_json TEXT,
+    metrics_json TEXT NOT NULL,
+    upstream_errors_json TEXT NOT NULL,
+    semantic_eligible INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sensor_observations_subject ON sensor_observations(machine_binding, subject_id, capability, observed_at);
+CREATE TABLE IF NOT EXISTS legacy_imports (
+    import_id TEXT PRIMARY KEY,
+    source_kind TEXT NOT NULL,
+    source_schema TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    source_machine_binding TEXT,
+    target_machine_binding TEXT NOT NULL,
+    reviewed_unbound_source INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,
+    counts_json TEXT NOT NULL,
+    conflicts_json TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_legacy_import_source ON legacy_imports(source_kind, source_sha256, target_machine_binding, status);
+CREATE TABLE IF NOT EXISTS legacy_record_map (
+    import_id TEXT NOT NULL,
+    source_table TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_key TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    details_json TEXT NOT NULL,
+    PRIMARY KEY(import_id, source_table, source_key)
+);
 """
 
 
@@ -365,6 +548,10 @@ def connect_current(catalog_path: Path, *, create: bool = False) -> sqlite3.Conn
     connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     connection.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
+    connection.execute(
+        "INSERT OR REPLACE INTO meta(key,value) VALUES('reconciliation_extension_version',?)",
+        (str(RECONCILIATION_EXTENSION_VERSION),),
+    )
     return connection
 
 
@@ -512,6 +699,10 @@ def migrate_to_current(state_dir: Path, *, apply: bool = False) -> dict[str, Any
         connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
         connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         connection.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
+        connection.execute(
+            "INSERT OR REPLACE INTO meta(key,value) VALUES('reconciliation_extension_version',?)",
+            (str(RECONCILIATION_EXTENSION_VERSION),),
+        )
         connection.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('last_migration_backup',?)", (str(backup),))
         connection.execute(
             "INSERT INTO migrations(migration_id,from_version,to_version,applied_at,backup_path,status) VALUES(?,?,?,?,?,?)",

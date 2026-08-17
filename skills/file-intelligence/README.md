@@ -167,3 +167,19 @@ python scripts\benchmark_project_timeline_noop.py --project-root <reviewed-root>
 ```
 
 Real benchmark reports must be written outside the repository.
+
+## Reconciliation extension (feature branch)
+
+This branch adds a backward-compatible schema-v3 extension for reviewed legacy FileCard/ProjectCard state and optional read-only sensors. Preview an import before applying it:
+
+```powershell
+python scripts\file_intelligence_cli.py reconcile-state --state-dir <schema-v3-state> --source <legacy-file-cards.db>
+```
+
+An applied import requires either a matching source machine binding or explicit acknowledgement that the legacy source is unbound and reviewed. It creates a verified destination backup first:
+
+```powershell
+python scripts\file_intelligence_cli.py reconcile-state --state-dir <schema-v3-state> --source <legacy-file-cards.db> --reviewed-unbound-source --apply
+```
+
+See [reconciliation-extension.md](references/reconciliation-extension.md) and [sensor-foundation.md](references/sensor-foundation.md). Production cutover is a separate, explicitly approved operation.

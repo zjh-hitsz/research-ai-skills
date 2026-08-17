@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Sequence
 
 from . import __version__
@@ -16,9 +17,11 @@ from .engine import (
     last_changes,
     list_projects,
     maintain,
+    machine_binding,
     migrate_state,
     project_history,
     retention,
+    resolve_state_dir,
     rollback_state,
     scheduler_support,
     snapshot_now,
@@ -28,6 +31,7 @@ from .engine import (
     timeline_history,
     understand_project,
 )
+from .reconciliation import ReconciliationError, reconcile_legacy_state
 
 
 def _common(parser: argparse.ArgumentParser) -> None:
@@ -84,6 +88,20 @@ def build_parser() -> argparse.ArgumentParser:
     migrate = commands.add_parser("migrate", help="Preview or explicitly apply a versioned state migration")
     _common(migrate)
     migrate.add_argument("--apply", action="store_true", help="Create an integrity-checked backup, then apply the migration")
+
+    reconcile = commands.add_parser(
+        "reconcile-state",
+        help="Preview or import a reviewed legacy FileCard/ProjectCard database into schema-v3 Core",
+    )
+    _common(reconcile)
+    reconcile.add_argument("--source", required=True, help="Read-only legacy FileCard SQLite database")
+    reconcile.add_argument("--source-machine-binding")
+    reconcile.add_argument(
+        "--reviewed-unbound-source",
+        action="store_true",
+        help="Confirm that an unbound legacy source has been reviewed for this machine",
+    )
+    reconcile.add_argument("--apply", action="store_true", help="Back up the target catalog, then import transactionally")
 
     rollback = commands.add_parser("rollback", help="Preview or explicitly restore a migration backup")
     _common(rollback)
@@ -193,6 +211,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = last_changes(state_dir=arguments.state_dir)
         elif arguments.command == "migrate":
             payload = migrate_state(state_dir=arguments.state_dir, apply=arguments.apply)
+        elif arguments.command == "reconcile-state":
+            payload = reconcile_legacy_state(
+                state_dir=resolve_state_dir(arguments.state_dir),
+                source_path=Path(arguments.source).expanduser().resolve(),
+                target_machine_binding=machine_binding(),
+                source_machine_binding=arguments.source_machine_binding,
+                reviewed_unbound_source=arguments.reviewed_unbound_source,
+                apply=arguments.apply,
+            )
         elif arguments.command == "rollback":
             payload = rollback_state(state_dir=arguments.state_dir, backup_path=arguments.backup, apply=arguments.apply)
         elif arguments.command == "understand":
@@ -259,7 +286,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = retention(state_dir=arguments.state_dir, apply=arguments.apply)
         else:
             payload = scheduler_support(state_dir=arguments.state_dir)
-    except FileIntelligenceError as exc:
+    except (FileIntelligenceError, ReconciliationError) as exc:
         print(json.dumps({"status": "ERROR", "error": str(exc), "physical_actions": 0}, ensure_ascii=False, indent=2), file=sys.stderr)
         return 2
     print(json.dumps(payload, ensure_ascii=False, indent=2))

@@ -97,6 +97,12 @@ python scripts/file_intelligence_cli.py schedule-plan
 
 `File Intelligence Home.html` is the computer-status home; `Computer Timeline.html` is the filterable local event view. `retention` is preview-only unless `--apply` is explicit, and never removes high-importance or authority history. `schedule-plan` installs nothing; use the bundled runner only after the user chooses a schedule.
 
+## Reconciliation and optional sensors
+
+Read `references/reconciliation-extension.md` before importing any legacy FileCard or ProjectCard state. `reconcile-state` is preview-only unless `--apply` is explicit. Applied imports must use a schema-v3 target, create a verified target backup, open the source immutable/query-only, validate machine binding, and roll back on stable-ID conflicts. An unbound legacy source requires the explicit `--reviewed-unbound-source` acknowledgement. Never point the generic importer at an unrelated production schema.
+
+Read `references/sensor-foundation.md` before enabling sensors. Sensors provide bounded `SYSTEM_OBSERVED` evidence only. Missing tools, valid empty results, sensor failures, last-known-good data, EULA gates, and administrator requirements must remain distinguishable. Never install a tool, accept a license, elevate privileges, start tracing, run a full-drive scan, or promote a sensor result into canonical meaning implicitly.
+
 ## Packaging boundary
 
 Before install, update, publish, or share:
