@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "high_value_extensions": [
+    ".md", ".txt", ".pdf", ".docx", ".pptx", ".xlsx",
+    ".py", ".ipynb", ".m", ".ps1", ".json", ".yaml", ".yml",
+    ".cas", ".cas.h5", ".dat", ".dat.h5", ".msh", ".msh.h5",
+    ".mph", ".scdoc", ".scdocx", ".step", ".stp", ".stl"
+  ],
+  "compound_extensions": [".cas.h5", ".dat.h5", ".msh.h5", ".tar.gz", ".scdocx"]
+}

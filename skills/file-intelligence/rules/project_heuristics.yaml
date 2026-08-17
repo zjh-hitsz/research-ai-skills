@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "excluded_directory_names": [
+    ".git", ".venv", "venv", "__pycache__", "node_modules", ".pytest_cache",
+    "$recycle.bin", "system volume information"
+  ],
+  "generic_container_names": [
+    "desktop", "downloads", "documents", "research", "projects", "project",
+    "data", "results", "output", "figures", "docs", "scripts", "src", "tests"
+  ],
+  "policy": "Treat a stable first-level non-generic directory as a Project candidate. Labels remain heuristic until the user confirms them."
+}
