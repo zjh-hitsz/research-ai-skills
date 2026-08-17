@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schema_version", "baseline_id", "version", "mode", "machine_binding", "roots", "counts", "digest", "real_execution_enabled"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "baseline_id": {"type": "string"},
     "version": {"type": "string"},
     "mode": {"const": "MAINTENANCE_READY"},

@@ -1,4 +1,4 @@
 interface:
   display_name: "File Intelligence"
-  short_description: "Build and maintain a private Windows file knowledge base"
-  default_prompt: "Use $file-intelligence to onboard this Windows folder read-only, or maintain its existing local file knowledge base."
+  short_description: "Understand private Windows files and research projects read-only"
+  default_prompt: "Use $file-intelligence to maintain this computer's private file knowledge base or explain a project, asset authority, dependency, identity, and archive-review evidence without changing files."

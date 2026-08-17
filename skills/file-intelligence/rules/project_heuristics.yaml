@@ -1,12 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "excluded_directory_names": [
-    ".git", ".venv", "venv", "__pycache__", "node_modules", ".pytest_cache",
+    ".git",
     "$recycle.bin", "system volume information"
   ],
   "generic_container_names": [
     "desktop", "downloads", "documents", "research", "projects", "project",
     "data", "results", "output", "figures", "docs", "scripts", "src", "tests"
   ],
-  "policy": "Treat a stable first-level non-generic directory as a Project candidate. Labels remain heuristic until the user confirms them."
+  "aggregate_directory_names": [
+    ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    "build", "dist", "cache", ".cache", "render", "renders", "preview", "previews", "tmp", "temp"
+  ],
+  "hierarchy": ["Project", "Workstream", "Asset Group", "Deliverable", "Archive"],
+  "policy": "Use first-level directories only as initial candidates. Merge them under an explicit targeted project root, then infer workstreams from structure, project metadata, content, references, lifecycle evidence, and local user assertions."
 }
