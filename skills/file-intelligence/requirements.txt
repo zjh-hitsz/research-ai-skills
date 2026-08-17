@@ -1,0 +1,2 @@
+# Python 3.10+ standard library only.
+# Everything ES.exe is optional and is never installed automatically.

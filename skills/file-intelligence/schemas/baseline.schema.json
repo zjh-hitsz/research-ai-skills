@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/file-intelligence/baseline.schema.json",
+  "title": "File Intelligence local baseline",
+  "type": "object",
+  "required": ["schema_version", "baseline_id", "version", "mode", "machine_binding", "roots", "counts", "digest", "real_execution_enabled"],
+  "properties": {
+    "schema_version": {"const": 3},
+    "baseline_id": {"type": "string"},
+    "version": {"type": "string"},
+    "mode": {"const": "MAINTENANCE_READY"},
+    "machine_binding": {"type": "string"},
+    "machine_binding_version": {"type": "integer", "minimum": 1},
+    "roots": {"type": "array", "items": {"type": "object"}},
+    "counts": {"type": "object"},
+    "digest": {"type": "string"},
+    "real_execution_enabled": {"const": false}
+  },
+  "additionalProperties": true
+}

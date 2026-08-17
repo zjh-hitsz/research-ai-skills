@@ -1,0 +1,4 @@
+interface:
+  display_name: "File Intelligence"
+  short_description: "Remember Windows file and project changes read-only"
+  default_prompt: "Use $file-intelligence to explain what changed on this computer, summarize recent project and storage activity, or inspect a file's evidence-backed history without changing files."

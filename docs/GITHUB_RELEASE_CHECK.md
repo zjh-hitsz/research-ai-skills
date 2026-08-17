@@ -4,9 +4,9 @@ Complete this checklist from a clean local clone before creating a GitHub releas
 
 ## Repository Scope
 
-- [ ] The repository contains exactly the intended four Foundation Skill directories.
+- [ ] The repository contains exactly the Skill directories declared in `registry/skill-registry.yaml`.
 - [ ] No Memory export, canonical project record, project snapshot, paper, model, dataset, result bundle, or checkpoint is tracked.
-- [ ] No eval fixture, runtime output, cache, generated validation report, or temporary report is tracked.
+- [ ] No private eval fixture, runtime output, cache, or temporary report is tracked; any curated public release audit contains counts and policy only.
 - [ ] Every tracked file is necessary for documentation, registry metadata, schemas, or Skill execution.
 
 ## Private Data and Secrets
@@ -30,7 +30,7 @@ Complete this checklist from a clean local clone before creating a GitHub releas
 - [ ] Every Skill folder name matches the `name` in its `SKILL.md` frontmatter.
 - [ ] Every JSON schema parses successfully and every schema reference resolves within `schemas/`.
 - [ ] Every Python source file parses successfully with the supported Python version.
-- [ ] The official Skill quick validator passes for all four Skill directories.
+- [ ] The official Skill quick validator passes for every registered Skill directory.
 - [ ] A second clean clone has the same tracked structure and does not require ignored files to load a Skill.
 
 ## Git Review
@@ -38,7 +38,7 @@ Complete this checklist from a clean local clone before creating a GitHub releas
 - [ ] `git status --short --ignored` shows only understood files.
 - [ ] `git ls-files` has been reviewed line by line.
 - [ ] A secret scanner has been run against both the working tree and repository history.
-- [ ] The release commit is tagged with the repository Semantic Version and the registry version matches the release notes.
+- [ ] For a tagged repository release, the release commit tag, registry version, and release notes agree.
 
 ## Release Decision
 

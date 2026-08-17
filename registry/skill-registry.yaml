@@ -1,5 +1,5 @@
 registry_version: 1.0.0
-repository_version: 0.1.0
+repository_version: 0.3.0
 skills:
   - name: validate-simulation-evidence
     version: 0.2.0
@@ -19,3 +19,7 @@ skills:
     status: implementation
     dependencies:
       - audit-research-project
+  - name: file-intelligence
+    version: 0.3.0
+    status: released
+    dependencies: []

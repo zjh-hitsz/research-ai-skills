@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/file-intelligence/timeline-event.schema.json",
+  "title": "File Intelligence historical event",
+  "type": "object",
+  "required": ["event_id", "event_type", "timestamp", "importance", "importance_score", "confidence"],
+  "properties": {
+    "event_id": {"type": "string"},
+    "event_type": {"type": "string"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "file_id": {"type": ["string", "null"]},
+    "project_id": {"type": ["string", "null"]},
+    "workstream_id": {"type": ["string", "null"]},
+    "path_before": {"type": ["string", "null"]},
+    "path_after": {"type": ["string", "null"]},
+    "size_delta": {"type": "integer"},
+    "importance": {"enum": ["VERY_HIGH", "HIGH", "MEDIUM", "LOW", "VOLATILE"]},
+    "importance_score": {"type": "number", "minimum": 0, "maximum": 100},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "why_important": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

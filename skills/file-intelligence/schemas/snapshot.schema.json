@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/file-intelligence/snapshot.schema.json",
+  "title": "File Intelligence lightweight snapshot",
+  "type": "object",
+  "required": ["snapshot_id", "created_at", "snapshot_kind", "files_count", "logical_size", "project_count", "catalog_digest"],
+  "properties": {
+    "snapshot_id": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "snapshot_kind": {"type": "string"},
+    "files_count": {"type": "integer", "minimum": 0},
+    "logical_size": {"type": "integer", "minimum": 0},
+    "project_count": {"type": "integer", "minimum": 0},
+    "authority_asset_count": {"type": "integer", "minimum": 0},
+    "aggregate_size": {"type": "integer", "minimum": 0},
+    "potential_cleanup": {"type": "integer", "minimum": 0},
+    "potential_archive": {"type": "integer", "minimum": 0},
+    "catalog_digest": {"type": "string"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,4 @@
+# Optional lightweight inspectors and benchmark metrics. Core operation remains standard-library only.
+pypdf>=5,<7
+h5py>=3.10,<4
+psutil>=5.9,<8
