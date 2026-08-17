@@ -15,6 +15,8 @@ from file_intelligence.reconciliation import (
     ReconciliationError,
     SemanticConflictError,
     extension_status,
+    import_cleanup_evidence_manifest,
+    inspect_cleanup_evidence_manifest,
     persist_sensor_observation,
     reconcile_legacy_state,
     upsert_file_card_semantics,
@@ -160,6 +162,28 @@ def create_legacy(path: Path, *, project_name: str = "Synthetic Project") -> Non
     connection.close()
 
 
+def create_cleanup_manifest(path: Path, *, full_sha256: str = "b" * 64) -> None:
+    payload = {
+        "schema": "file-intelligence-cleanup-evidence-v1",
+        "records": [
+            {
+                "evidence_id": "cleanup_ev_1",
+                "subject": {"file_id": "file_1"},
+                "claim_type": "EXACT_DUPLICATE",
+                "authority": "HASH_EVIDENCE",
+                "confidence": 1.0,
+                "full_sha256": full_sha256,
+                "duplicate_group": "duplicate_group_1",
+                "evidence": [{"type": "full_sha256_match"}],
+                "proposed_file_card_patch": {"duplicate_group": "duplicate_group_1"},
+                "recommendation": {"action": "REVIEW_REDUNDANT_COPY", "read_only": True},
+                "source_ref": "synthetic:cleanup-audit",
+            }
+        ],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 class ExtensionTests(unittest.TestCase):
     def test_existing_v3_catalog_installs_extension_without_version_change(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -179,6 +203,8 @@ class ExtensionTests(unittest.TestCase):
                 "sensor_observations",
                 "legacy_imports",
                 "legacy_record_map",
+                "legacy_cleanup_evidence",
+                "cleanup_recommendations",
             ):
                 connection.execute(f"DROP TABLE {table}")
             connection.execute("DELETE FROM meta WHERE key='reconciliation_extension_version'")
@@ -241,6 +267,58 @@ class ExtensionTests(unittest.TestCase):
                     reason="BAD_DUPLICATE",
                 )
             connection.close()
+
+    def test_cleanup_evidence_is_imported_without_execution_or_card_mutation(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest = root / "cleanup.json"
+            create_cleanup_manifest(manifest)
+            connection = connect_current(root / "catalog.db", create=True)
+            connection.execute(
+                "INSERT INTO file_cards VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                ("file_1", None, "synthetic", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "present", 1.0, "[]", None, None, "FILE_LOCAL"),
+            )
+            connection.commit()
+            preview = import_cleanup_evidence_manifest(
+                connection,
+                manifest_path=manifest,
+                target_machine_binding="machine-a",
+                reviewed_unbound_source=True,
+                apply=False,
+            )
+            self.assertEqual(preview["status"], "PREVIEW_ONLY")
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM legacy_cleanup_evidence").fetchone()[0], 0)
+            result = import_cleanup_evidence_manifest(
+                connection,
+                manifest_path=manifest,
+                target_machine_binding="machine-a",
+                reviewed_unbound_source=True,
+                apply=True,
+            )
+            self.assertEqual(result["status"], "COMPLETED")
+            recommendation = connection.execute(
+                "SELECT status,execution_authorized FROM cleanup_recommendations"
+            ).fetchone()
+            self.assertEqual(tuple(recommendation), ("PROPOSED_READ_ONLY", 0))
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM file_card_evidence").fetchone()[0], 1)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM file_card_semantics").fetchone()[0], 0)
+            again = import_cleanup_evidence_manifest(
+                connection,
+                manifest_path=manifest,
+                target_machine_binding="machine-a",
+                reviewed_unbound_source=True,
+                apply=True,
+            )
+            self.assertEqual(again["status"], "NO_OP_ALREADY_IMPORTED")
+            connection.close()
+
+    def test_cleanup_exact_duplicate_rejects_non_full_hash(self):
+        with tempfile.TemporaryDirectory() as raw:
+            manifest = Path(raw) / "cleanup.json"
+            create_cleanup_manifest(manifest, full_sha256="quick")
+            inspection = inspect_cleanup_evidence_manifest(manifest)
+            self.assertFalse(inspection["valid"])
+            self.assertIn("full SHA-256", inspection["errors"][0]["errors"][0])
 
 
 class LegacyImportTests(unittest.TestCase):

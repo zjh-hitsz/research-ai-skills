@@ -31,7 +31,7 @@ from .engine import (
     timeline_history,
     understand_project,
 )
-from .reconciliation import ReconciliationError, reconcile_legacy_state
+from .reconciliation import ReconciliationError, reconcile_cleanup_evidence_state, reconcile_legacy_state
 
 
 def _common(parser: argparse.ArgumentParser) -> None:
@@ -102,6 +102,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Confirm that an unbound legacy source has been reviewed for this machine",
     )
     reconcile.add_argument("--apply", action="store_true", help="Back up the target catalog, then import transactionally")
+
+    cleanup_evidence = commands.add_parser(
+        "cleanup-evidence",
+        help="Preview or import a reviewed normalized cleanup-evidence manifest; recommendations remain read-only",
+    )
+    _common(cleanup_evidence)
+    cleanup_evidence.add_argument("--manifest", required=True)
+    cleanup_evidence.add_argument("--reviewed-unbound-source", action="store_true")
+    cleanup_evidence.add_argument("--apply", action="store_true", help="Back up the target catalog, then import evidence only")
 
     rollback = commands.add_parser("rollback", help="Preview or explicitly restore a migration backup")
     _common(rollback)
@@ -217,6 +226,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 source_path=Path(arguments.source).expanduser().resolve(),
                 target_machine_binding=machine_binding(),
                 source_machine_binding=arguments.source_machine_binding,
+                reviewed_unbound_source=arguments.reviewed_unbound_source,
+                apply=arguments.apply,
+            )
+        elif arguments.command == "cleanup-evidence":
+            payload = reconcile_cleanup_evidence_state(
+                state_dir=resolve_state_dir(arguments.state_dir),
+                manifest_path=Path(arguments.manifest).expanduser().resolve(),
+                target_machine_binding=machine_binding(),
                 reviewed_unbound_source=arguments.reviewed_unbound_source,
                 apply=arguments.apply,
             )

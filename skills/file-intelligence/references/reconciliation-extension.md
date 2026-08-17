@@ -26,6 +26,10 @@ The Core SQLite `user_version` remains `3`. `meta.reconciliation_extension_versi
 
 Rollback restores the verified pre-import target backup. Source databases are never modified.
 
+## Cleanup evidence import
+
+`cleanup-evidence` accepts only a reviewed `file-intelligence-cleanup-evidence-v1` JSON manifest described by `schemas/cleanup-evidence.schema.json`. It can preserve exact-duplicate, rebuildability, supersession, failed-provenance, archive-candidate, structural-double-write, and protected-evidence claims. Exact-duplicate records require full SHA-256. Proposed card patches are stored for review and are not applied automatically. Every cleanup recommendation is persisted as `PROPOSED_READ_ONLY` with `execution_authorized=0`; the interface has no file-operation capability.
+
 ## Semantic invariants
 
 - exact duplicate groups require full SHA-256 content identity;

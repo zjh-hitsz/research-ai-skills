@@ -183,3 +183,9 @@ python scripts\file_intelligence_cli.py reconcile-state --state-dir <schema-v3-s
 ```
 
 See [reconciliation-extension.md](references/reconciliation-extension.md) and [sensor-foundation.md](references/sensor-foundation.md). Production cutover is a separate, explicitly approved operation.
+
+Reviewed cleanup evidence uses a separate preview-first interface. It imports evidence and read-only recommendations only:
+
+```powershell
+python scripts\file_intelligence_cli.py cleanup-evidence --state-dir <schema-v3-state> --manifest <reviewed-cleanup-evidence.json>
+```

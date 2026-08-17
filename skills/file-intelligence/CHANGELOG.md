@@ -6,6 +6,7 @@ File Intelligence follows Semantic Versioning for reusable Skill code. Private m
 
 - Added a backward-compatible schema-v3 reconciliation extension for rich FileCard semantics, revisions, evidence, path history, derived ProjectCard views, relations, assertion events, sensor observations, and import ledgers.
 - Added an explicit, backup-first, transactional importer for reviewed local FileCard/ProjectCard schema 2.0.1 and validation schema 1.0.0 state.
+- Added a normalized legacy cleanup-evidence interface whose proposed recommendations remain read-only and have zero execution authority.
 - Added optional capability-based read-only sensors with health, fallback, last-known-good, EULA/admin gates, and non-canonical observation persistence.
 - Added foreign-state rejection, two-machine isolation, no-op import, rollback, exact-duplicate, privacy, and sensor-optional regression coverage.
 - Improved Windows canonical path handling for long paths that include 8.3 aliases.

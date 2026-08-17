@@ -77,6 +77,25 @@ JSON_DEFAULTS = {
     "source_signature_json": "{}",
 }
 
+CLEANUP_CLAIM_TYPES = {
+    "EXACT_DUPLICATE",
+    "REBUILDABLE",
+    "SUPERSEDED_LINEAGE",
+    "FAILED_PROVENANCE",
+    "ARCHIVE_CANDIDATE",
+    "STRUCTURAL_DOUBLE_WRITE",
+    "PROTECTED_EVIDENCE",
+}
+
+CLEANUP_PATCH_FIELDS = {
+    "asset_role",
+    "duplicate_group",
+    "canonical_status",
+    "rebuildable",
+    "superseded_by_json",
+    "archive_recommendation",
+}
+
 
 class ReconciliationError(RuntimeError):
     pass
@@ -432,6 +451,312 @@ def persist_sensor_observation(
         ),
     )
     return observation.observation_id
+
+
+def inspect_cleanup_evidence_manifest(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    raw = path.read_bytes()
+    try:
+        payload = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReconciliationError(f"Cleanup evidence manifest is not valid UTF-8 JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ReconciliationError("Cleanup evidence manifest root must be an object")
+    if payload.get("schema") != "file-intelligence-cleanup-evidence-v1":
+        raise ReconciliationError("Unsupported cleanup evidence schema")
+    records = payload.get("records")
+    if not isinstance(records, list):
+        raise ReconciliationError("Cleanup evidence records must be an array")
+    if len(records) > 100000:
+        raise ReconciliationError("Cleanup evidence manifest exceeds the 100000-record safety limit")
+    errors: list[dict[str, Any]] = []
+    ids: set[str] = set()
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(records):
+        if not isinstance(item, dict):
+            errors.append({"index": index, "error": "record must be an object"})
+            continue
+        evidence_id = str(item.get("evidence_id") or "")
+        claim_type = str(item.get("claim_type") or "")
+        subject = item.get("subject") if isinstance(item.get("subject"), dict) else {}
+        authority = str(item.get("authority") or "")
+        confidence = item.get("confidence")
+        recommendation = item.get("recommendation") if isinstance(item.get("recommendation"), dict) else {}
+        proposed_patch = item.get("proposed_file_card_patch") if isinstance(item.get("proposed_file_card_patch"), dict) else {}
+        item_errors: list[str] = []
+        if not evidence_id or evidence_id in ids:
+            item_errors.append("evidence_id is missing or duplicated")
+        ids.add(evidence_id)
+        if claim_type not in CLEANUP_CLAIM_TYPES:
+            item_errors.append("claim_type is unsupported")
+        if not subject.get("file_id") and not subject.get("path"):
+            item_errors.append("subject.file_id or subject.path is required")
+        if authority not in AUTHORITY_ORDER:
+            item_errors.append("authority is unsupported")
+        try:
+            numeric_confidence = float(confidence)
+            if not 0.0 <= numeric_confidence <= 1.0:
+                raise ValueError
+        except (TypeError, ValueError):
+            numeric_confidence = 0.0
+            item_errors.append("confidence must be between 0 and 1")
+        unknown_patch = set(proposed_patch) - CLEANUP_PATCH_FIELDS
+        if unknown_patch:
+            item_errors.append(f"unsupported proposed patch fields: {sorted(unknown_patch)}")
+        if recommendation and recommendation.get("read_only") is not True:
+            item_errors.append("cleanup recommendation must declare read_only=true")
+        full_sha = str(item.get("full_sha256") or "").casefold()
+        duplicate_group = item.get("duplicate_group")
+        if claim_type == "EXACT_DUPLICATE":
+            if len(full_sha) != 64 or any(char not in "0123456789abcdef" for char in full_sha):
+                item_errors.append("EXACT_DUPLICATE requires a full SHA-256")
+            if not duplicate_group:
+                item_errors.append("EXACT_DUPLICATE requires duplicate_group")
+        if proposed_patch.get("duplicate_group") and claim_type != "EXACT_DUPLICATE":
+            item_errors.append("duplicate_group patch requires EXACT_DUPLICATE evidence")
+        if item_errors:
+            errors.append({"index": index, "evidence_id": evidence_id, "errors": item_errors})
+            continue
+        normalized.append(
+            {
+                "evidence_id": evidence_id,
+                "claim_type": claim_type,
+                "subject": {"file_id": subject.get("file_id"), "path": subject.get("path")},
+                "authority": authority,
+                "confidence": numeric_confidence,
+                "full_sha256": full_sha or None,
+                "duplicate_group": duplicate_group,
+                "evidence": item.get("evidence") if isinstance(item.get("evidence"), list) else [],
+                "proposed_file_card_patch": proposed_patch,
+                "recommendation": {**recommendation, "read_only": True} if recommendation else {},
+                "source_ref": item.get("source_ref"),
+                "semantic_change": item.get("semantic_change") if isinstance(item.get("semantic_change"), dict) else None,
+            }
+        )
+    source_sha = hashlib.sha256(raw).hexdigest()
+    return {
+        "path": str(path),
+        "schema": payload["schema"],
+        "source_sha256": source_sha,
+        "source_machine_binding": payload.get("source_machine_binding"),
+        "record_count": len(records),
+        "valid_record_count": len(normalized),
+        "errors": errors,
+        "valid": not errors,
+        "records": normalized,
+    }
+
+
+def import_cleanup_evidence_manifest(
+    connection: sqlite3.Connection,
+    *,
+    manifest_path: Path,
+    target_machine_binding: str,
+    reviewed_unbound_source: bool = False,
+    apply: bool = False,
+) -> dict[str, Any]:
+    inspection = inspect_cleanup_evidence_manifest(manifest_path)
+    if not inspection["valid"]:
+        raise ReconciliationError(
+            f"Cleanup evidence manifest has {len(inspection['errors'])} validation error(s)"
+        )
+    _validate_binding(
+        connection,
+        target_machine_binding=target_machine_binding,
+        source_machine_binding=inspection.get("source_machine_binding"),
+        reviewed_unbound_source=reviewed_unbound_source,
+    )
+    preview = {
+        "mode": "LEGACY_CLEANUP_EVIDENCE_IMPORT",
+        "status": "PREVIEW_ONLY" if not apply else "READY_TO_APPLY",
+        "source_schema": inspection["schema"],
+        "source_sha256": inspection["source_sha256"],
+        "record_count": inspection["record_count"],
+        "valid_record_count": inspection["valid_record_count"],
+        "read_only_recommendations": True,
+        "physical_file_actions": 0,
+        "state_files_written": 0,
+    }
+    if not apply:
+        return preview
+    source_sha = str(inspection["source_sha256"])
+    import_id = "cleanup_import_" + digest_json(
+        {"source_sha256": source_sha, "target": target_machine_binding}
+    )[:24]
+    prior = connection.execute(
+        """SELECT 1 FROM legacy_imports
+           WHERE source_kind='cleanup_evidence_manifest' AND source_sha256=?
+             AND target_machine_binding=? AND status='COMPLETED'""",
+        (source_sha, target_machine_binding),
+    ).fetchone()
+    if prior:
+        return {**preview, "status": "NO_OP_ALREADY_IMPORTED", "import_id": import_id}
+    connection.execute("SAVEPOINT cleanup_evidence_import")
+    try:
+        started = utc_now()
+        connection.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('machine_binding',?)", (target_machine_binding,))
+        connection.execute(
+            """INSERT INTO legacy_imports(
+                import_id,source_kind,source_schema,source_sha256,source_machine_binding,target_machine_binding,
+                reviewed_unbound_source,started_at,completed_at,status,counts_json,conflicts_json
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                import_id,
+                "cleanup_evidence_manifest",
+                inspection["schema"],
+                source_sha,
+                inspection.get("source_machine_binding"),
+                target_machine_binding,
+                int(reviewed_unbound_source),
+                started,
+                None,
+                "RUNNING",
+                "{}",
+                "[]",
+            ),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO runs(run_id,mode,status,created_at,summary_json) VALUES(?,?,?,?,?)",
+            (import_id, "LEGACY_CLEANUP_EVIDENCE_IMPORT", "RUNNING", started, "{}"),
+        )
+        by_path = {
+            _normalize_path(str(row[1])): str(row[0])
+            for row in connection.execute("SELECT file_id,path FROM files WHERE file_id IS NOT NULL")
+        }
+        counts = {"evidence_imported": 0, "recommendations_imported": 0, "file_evidence_linked": 0, "unresolved_subjects": 0, "semantic_changes_imported": 0}
+        for record in inspection["records"]:
+            subject = record["subject"]
+            file_id = str(subject.get("file_id") or "") or None
+            if file_id and not connection.execute("SELECT 1 FROM file_cards WHERE file_id=?", (file_id,)).fetchone():
+                file_id = None
+            if not file_id and subject.get("path"):
+                file_id = by_path.get(_normalize_path(str(subject["path"])))
+            mapping_status = "MAPPED_TO_FILE_CARD" if file_id else "UNRESOLVED_SUBJECT"
+            counts["unresolved_subjects" if not file_id else "evidence_imported"] += 1
+            expected_payload = canonical_json(record["evidence"])
+            existing = connection.execute(
+                "SELECT source_sha256,evidence_json FROM legacy_cleanup_evidence WHERE evidence_id=?",
+                (record["evidence_id"],),
+            ).fetchone()
+            if existing and (str(existing[0]) != source_sha or str(existing[1]) != expected_payload):
+                raise SemanticConflictError(
+                    [{"kind": "CLEANUP_EVIDENCE_ID_COLLISION", "source_key": record["evidence_id"]}]
+                )
+            if not existing:
+                connection.execute(
+                    """INSERT INTO legacy_cleanup_evidence(
+                        evidence_id,import_id,subject_file_id,subject_path,claim_type,authority,confidence,
+                        full_sha256,duplicate_group,evidence_json,proposed_file_card_patch_json,source_ref,
+                        source_sha256,mapping_status,imported_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        record["evidence_id"],
+                        import_id,
+                        file_id,
+                        subject.get("path"),
+                        record["claim_type"],
+                        record["authority"],
+                        record["confidence"],
+                        record["full_sha256"],
+                        record["duplicate_group"],
+                        expected_payload,
+                        canonical_json(record["proposed_file_card_patch"]),
+                        record["source_ref"],
+                        source_sha,
+                        mapping_status,
+                        started,
+                    ),
+                )
+                if not file_id:
+                    counts["evidence_imported"] += 1
+            if file_id:
+                evidence_key = "cleanup_" + record["evidence_id"]
+                result = connection.execute(
+                    """INSERT OR IGNORE INTO file_card_evidence(
+                        evidence_id,file_id,claim,authority,description,source_ref,confidence,observed_at,
+                        semantic_eligible,payload_json,source_system
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        evidence_key,
+                        file_id,
+                        record["claim_type"],
+                        record["authority"],
+                        "Reviewed legacy cleanup evidence; recommendation remains read-only",
+                        record["source_ref"],
+                        record["confidence"],
+                        started,
+                        1,
+                        expected_payload,
+                        "legacy_cleanup_evidence",
+                    ),
+                )
+                counts["file_evidence_linked"] += max(0, int(result.rowcount))
+            if record["recommendation"]:
+                result = connection.execute(
+                    """INSERT OR IGNORE INTO cleanup_recommendations(
+                        recommendation_id,evidence_id,subject_file_id,recommendation_json,status,
+                        execution_authorized,created_at
+                    ) VALUES(?,?,?,?,?,?,?)""",
+                    (
+                        "recommendation_" + record["evidence_id"],
+                        record["evidence_id"],
+                        file_id,
+                        canonical_json(record["recommendation"]),
+                        "PROPOSED_READ_ONLY",
+                        0,
+                        started,
+                    ),
+                )
+                counts["recommendations_imported"] += max(0, int(result.rowcount))
+            change = record.get("semantic_change")
+            if change and change.get("project_id"):
+                change_id = _source_event_id(source_sha, "cleanup_semantic_change", record["evidence_id"])
+                result = connection.execute(
+                    """INSERT OR IGNORE INTO semantic_changes(
+                        semantic_change_id,run_id,created_at,project_id,workstream_id,change_kind,importance,
+                        importance_score,event_count,size_delta,summary_json
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        change_id,
+                        import_id,
+                        started,
+                        change["project_id"],
+                        change.get("workstream_id"),
+                        change.get("change_kind") or "LEGACY_CLEANUP_EVIDENCE",
+                        str(change.get("importance") or "medium").casefold(),
+                        float(change.get("importance_score") or record["confidence"]),
+                        0,
+                        int(change.get("size_delta") or 0),
+                        canonical_json(
+                            {"summary": change.get("summary"), "evidence_id": record["evidence_id"], "read_only": True}
+                        ),
+                    ),
+                )
+                counts["semantic_changes_imported"] += max(0, int(result.rowcount))
+        completed = utc_now()
+        connection.execute(
+            "UPDATE legacy_imports SET completed_at=?,status='COMPLETED',counts_json=? WHERE import_id=?",
+            (completed, canonical_json(counts), import_id),
+        )
+        connection.execute(
+            "UPDATE runs SET status='COMPLETED',summary_json=? WHERE run_id=?",
+            (canonical_json(counts), import_id),
+        )
+        connection.execute("RELEASE SAVEPOINT cleanup_evidence_import")
+        connection.commit()
+    except Exception:
+        connection.execute("ROLLBACK TO SAVEPOINT cleanup_evidence_import")
+        connection.execute("RELEASE SAVEPOINT cleanup_evidence_import")
+        connection.rollback()
+        raise
+    return {
+        **preview,
+        "status": "COMPLETED",
+        "import_id": import_id,
+        "counts": counts,
+        "state_files_written": 1,
+    }
 
 
 class LegacyCardImporter:
@@ -1148,6 +1473,8 @@ def extension_status(connection: sqlite3.Connection) -> dict[str, Any]:
         "sensor_observations",
         "legacy_imports",
         "legacy_record_map",
+        "legacy_cleanup_evidence",
+        "cleanup_recommendations",
     }
     row = connection.execute(
         "SELECT value FROM meta WHERE key='reconciliation_extension_version'"
@@ -1230,5 +1557,88 @@ def reconcile_legacy_state(
         "status": report.status,
         "report": report.to_dict(),
         "backup": {**manifest, "manifest": str(manifest_path)},
+        "state_files_written": 3,
+    }
+
+
+def reconcile_cleanup_evidence_state(
+    *,
+    state_dir: Path,
+    manifest_path: Path,
+    target_machine_binding: str,
+    reviewed_unbound_source: bool = False,
+    apply: bool = False,
+) -> dict[str, Any]:
+    from .database import connect_current
+
+    inspection = inspect_cleanup_evidence_manifest(manifest_path)
+    if not inspection["valid"]:
+        raise ReconciliationError(
+            f"Cleanup evidence manifest has {len(inspection['errors'])} validation error(s)"
+        )
+    source_binding = inspection.get("source_machine_binding")
+    if source_binding and source_binding != target_machine_binding:
+        raise ForeignStateError("Cleanup evidence manifest is bound to a foreign machine")
+    if not source_binding and not reviewed_unbound_source:
+        raise ForeignStateError("Unbound cleanup evidence requires explicit reviewed_unbound_source=True")
+    plan = {
+        "mode": "LEGACY_CLEANUP_EVIDENCE_IMPORT",
+        "source_schema": inspection["schema"],
+        "source_sha256": inspection["source_sha256"],
+        "record_count": inspection["record_count"],
+        "valid_record_count": inspection["valid_record_count"],
+        "target_state_dir": str(state_dir),
+        "backup_required": True,
+        "read_only_recommendations": True,
+        "physical_file_actions": 0,
+    }
+    if not apply:
+        return {**plan, "status": "PREVIEW_ONLY", "state_files_written": 0}
+    catalog = state_dir / "catalog.db"
+    if not catalog.is_file():
+        raise ReconciliationError(f"Target schema-v3 catalog does not exist: {catalog}")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_dir = state_dir / "migrations" / f"cleanup-evidence-{stamp}"
+    backup_dir.mkdir(parents=True, exist_ok=False)
+    backup_catalog = backup_dir / "catalog.db"
+    source_connection = sqlite3.connect(catalog)
+    backup_connection = sqlite3.connect(backup_catalog)
+    try:
+        source_connection.backup(backup_connection)
+    finally:
+        backup_connection.close()
+        source_connection.close()
+    backup_hash = file_sha256(backup_catalog)
+    backup_manifest = {
+        "created_at": utc_now(),
+        "source_catalog": str(catalog),
+        "backup_catalog": str(backup_catalog),
+        "sha256": backup_hash,
+        "files": [{"name": "catalog.db", "sha256": backup_hash}],
+        "restore_required_for_rollback": True,
+        "physical_file_actions": 0,
+    }
+    backup_manifest_path = backup_dir / "backup_manifest.json"
+    backup_manifest_path.write_text(
+        json.dumps(backup_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    connection = connect_current(catalog)
+    try:
+        result = import_cleanup_evidence_manifest(
+            connection,
+            manifest_path=manifest_path,
+            target_machine_binding=target_machine_binding,
+            reviewed_unbound_source=reviewed_unbound_source,
+            apply=True,
+        )
+        integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+        if integrity != "ok":
+            raise ReconciliationError(f"Target failed integrity_check after cleanup evidence import: {integrity}")
+    finally:
+        connection.close()
+    return {
+        **plan,
+        **result,
+        "backup": {**backup_manifest, "manifest": str(backup_manifest_path)},
         "state_files_written": 3,
     }

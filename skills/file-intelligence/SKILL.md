@@ -101,6 +101,8 @@ python scripts/file_intelligence_cli.py schedule-plan
 
 Read `references/reconciliation-extension.md` before importing any legacy FileCard or ProjectCard state. `reconcile-state` is preview-only unless `--apply` is explicit. Applied imports must use a schema-v3 target, create a verified target backup, open the source immutable/query-only, validate machine binding, and roll back on stable-ID conflicts. An unbound legacy source requires the explicit `--reviewed-unbound-source` acknowledgement. Never point the generic importer at an unrelated production schema.
 
+Use `cleanup-evidence` only with a reviewed normalized v1 manifest. Store proposed cleanup recommendations as read-only evidence with zero execution authority. Do not translate raw full-disk audit output into canonical roles, duplicate groups, semantic changes, or cleanup actions automatically.
+
 Read `references/sensor-foundation.md` before enabling sensors. Sensors provide bounded `SYSTEM_OBSERVED` evidence only. Missing tools, valid empty results, sensor failures, last-known-good data, EULA gates, and administrator requirements must remain distinguishable. Never install a tool, accept a license, elevate privileges, start tracing, run a full-drive scan, or promote a sensor result into canonical meaning implicitly.
 
 ## Packaging boundary

@@ -496,6 +496,34 @@ CREATE TABLE IF NOT EXISTS legacy_record_map (
     details_json TEXT NOT NULL,
     PRIMARY KEY(import_id, source_table, source_key)
 );
+CREATE TABLE IF NOT EXISTS legacy_cleanup_evidence (
+    evidence_id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL,
+    subject_file_id TEXT,
+    subject_path TEXT,
+    claim_type TEXT NOT NULL,
+    authority TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    full_sha256 TEXT,
+    duplicate_group TEXT,
+    evidence_json TEXT NOT NULL,
+    proposed_file_card_patch_json TEXT NOT NULL,
+    source_ref TEXT,
+    source_sha256 TEXT NOT NULL,
+    mapping_status TEXT NOT NULL,
+    imported_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cleanup_evidence_subject ON legacy_cleanup_evidence(subject_file_id, claim_type, authority);
+CREATE TABLE IF NOT EXISTS cleanup_recommendations (
+    recommendation_id TEXT PRIMARY KEY,
+    evidence_id TEXT NOT NULL,
+    subject_file_id TEXT,
+    recommendation_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    execution_authorized INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cleanup_recommendations_status ON cleanup_recommendations(status, execution_authorized);
 """
 
 

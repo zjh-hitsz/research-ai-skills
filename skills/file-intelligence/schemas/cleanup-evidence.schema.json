@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/file-intelligence/cleanup-evidence.schema.json",
+  "title": "File Intelligence Reviewed Cleanup Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "records"],
+  "properties": {
+    "schema": {"const": "file-intelligence-cleanup-evidence-v1"},
+    "source_machine_binding": {"type": ["string", "null"]},
+    "generated_at": {"type": ["string", "null"]},
+    "records": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_id", "subject", "claim_type", "authority", "confidence"],
+        "properties": {
+          "evidence_id": {"type": "string", "minLength": 1},
+          "subject": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "file_id": {"type": ["string", "null"]},
+              "path": {"type": ["string", "null"]}
+            },
+            "anyOf": [{"required": ["file_id"]}, {"required": ["path"]}]
+          },
+          "claim_type": {
+            "enum": [
+              "EXACT_DUPLICATE",
+              "REBUILDABLE",
+              "SUPERSEDED_LINEAGE",
+              "FAILED_PROVENANCE",
+              "ARCHIVE_CANDIDATE",
+              "STRUCTURAL_DOUBLE_WRITE",
+              "PROTECTED_EVIDENCE"
+            ]
+          },
+          "authority": {
+            "enum": [
+              "HEURISTIC",
+              "AI_INFERRED",
+              "SYSTEM_OBSERVED",
+              "CODE_EVIDENCE",
+              "DOCUMENT_EVIDENCE",
+              "HASH_EVIDENCE",
+              "EXPLICIT_METADATA",
+              "USER_ASSERTED"
+            ]
+          },
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "full_sha256": {"type": ["string", "null"], "pattern": "^[0-9A-Fa-f]{64}$"},
+          "duplicate_group": {"type": ["string", "null"]},
+          "evidence": {"type": "array", "items": {"type": "object"}},
+          "proposed_file_card_patch": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "asset_role": {},
+              "duplicate_group": {},
+              "canonical_status": {},
+              "rebuildable": {},
+              "superseded_by_json": {},
+              "archive_recommendation": {}
+            }
+          },
+          "recommendation": {
+            "type": "object",
+            "required": ["read_only"],
+            "properties": {"read_only": {"const": true}}
+          },
+          "source_ref": {"type": ["string", "null"]},
+          "semantic_change": {"type": ["object", "null"]}
+        }
+      }
+    }
+  }
+}
