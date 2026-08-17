@@ -13,6 +13,7 @@ class FileIntelligenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             result = status(state_dir=Path(temporary) / "state")
             self.assertEqual(result["status"], "DEEP_ONBOARDING_REQUIRED")
+            self.assertEqual(result["skill_version"], "0.3.0")
             self.assertFalse(result["real_execution_enabled"])
 
     def test_onboarding_maintenance_and_noop(self) -> None:

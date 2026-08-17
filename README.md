@@ -46,6 +46,8 @@ The machine-readable source of versions, statuses, and dependencies is [registry
 
 ## Usage
 
+For the stable File Intelligence v0.3.0 Windows install and six-command first run, start with [`skills/file-intelligence/README.md`](skills/file-intelligence/README.md#quick-start) and use repository tag `v0.3.0`. Skill code comes from GitHub; every computer keeps its own private state under `%LOCALAPPDATA%\FileIntelligence`.
+
 1. Copy one or more folders from `skills/` into the Skill directory used by your AI agent, preserving each folder name.
 2. Keep required dependencies together. For example, install `validate-simulation-evidence` with `map-physical-fields`.
 3. Invoke the Skill by name, such as: `Use $audit-research-project to produce a read-only audit of this project.`

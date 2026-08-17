@@ -16,7 +16,9 @@ from file_intelligence.engine import (
     _scan_everything,
     _scan_filesystem,
     deep_onboard,
+    legacy_machine_binding,
     machine_binding,
+    machine_binding_matches,
     migrate_state,
     rollback_state,
     status,
@@ -59,6 +61,17 @@ def _create_v1_state(state: Path, scanned_root: Path) -> None:
 
 
 class MigrationAndSafetyTests(unittest.TestCase):
+    def test_machine_guid_binding_is_per_machine_and_accepts_legacy_local_state(self) -> None:
+        legacy = legacy_machine_binding()
+        with mock.patch("file_intelligence.engine._windows_machine_guid", return_value="synthetic-machine-a"):
+            machine_a = machine_binding()
+            self.assertTrue(machine_binding_matches(machine_a))
+            self.assertTrue(machine_binding_matches(legacy))
+        with mock.patch("file_intelligence.engine._windows_machine_guid", return_value="synthetic-machine-b"):
+            machine_b = machine_binding()
+            self.assertFalse(machine_binding_matches(machine_a))
+        self.assertNotEqual(machine_a, machine_b)
+
     def test_migration_requires_explicit_apply_and_is_rollbackable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

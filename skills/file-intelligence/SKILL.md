@@ -5,6 +5,8 @@ description: Build and maintain a private, read-only Windows file, project, and 
 
 # File Intelligence
 
+Current stable capability version: `0.3.0`; local catalog schema: `v3`.
+
 Keep reusable Skill code and private machine knowledge separate. Store catalogs, paths, project graphs, evidence, fingerprints, assertions, run records, dashboards, and migration backups under `%LOCALAPPDATA%\FileIntelligence` unless the user explicitly supplies `--state-dir` or `FILE_INTELLIGENCE_STATE_DIR`.
 
 ## Route the request

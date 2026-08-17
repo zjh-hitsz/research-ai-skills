@@ -7,6 +7,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from . import __version__
+
 
 DASHBOARD_NAME = "File Intelligence Home.html"
 
@@ -134,7 +136,7 @@ main{{max-width:1240px;margin:auto;padding:36px 24px 72px}} h1{{font-size:32px;m
 .notice{{border-left:4px solid var(--good);padding:10px 14px;background:#edf8f3;margin:20px 0}} @media(max-width:700px){{.columns{{grid-template-columns:1fr}}}}
 .change{{display:flex;justify-content:space-between;gap:20px;background:white;border:1px solid var(--line);border-radius:12px;padding:13px 16px;margin:8px 0}} .change h3,.change p{{margin:2px 0}} .timeline-link{{float:right;color:var(--accent);font-weight:700;text-decoration:none}}
 </style></head><body><main>
-<a class="timeline-link" href="Computer Timeline.html">Open Computer Timeline →</a><h1>Computer Intelligence</h1><p class="lead">Private, local, read-only memory of current files, projects, storage and historical change.</p>
+<a class="timeline-link" href="Computer Timeline.html">Open Computer Timeline →</a><h1>Computer Intelligence</h1><p class="lead">File Intelligence v{_escape(__version__)} · private, local, read-only memory of current files, projects, storage and historical change.</p>
 <section class="overview">
 <div class="stat"><b>{int(machine[0]):,}</b><span>present files</span></div>
 <div class="stat"><b>{_human_size(int(machine[1]))}</b><span>catalogued size</span></div>

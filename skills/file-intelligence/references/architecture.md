@@ -16,6 +16,8 @@ Local state includes:
 
 None belongs in a Skill package or Git repository.
 
+New Windows baselines use a one-way SHA-256 binding derived from the local Windows MachineGuid plus platform facts; the raw MachineGuid is never stored. Legacy hostname/platform bindings remain accepted on the original machine for backward compatibility. A copied foreign state reports `MACHINE_REBIND_REQUIRED`, and Maintenance refuses to use it silently. Separate state directories always produce separate baseline IDs and catalogs even when one Skill installation supplies the shared code.
+
 ## Layers
 
 ```text

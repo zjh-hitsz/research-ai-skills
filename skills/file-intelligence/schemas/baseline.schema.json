@@ -10,6 +10,7 @@
     "version": {"type": "string"},
     "mode": {"const": "MAINTENANCE_READY"},
     "machine_binding": {"type": "string"},
+    "machine_binding_version": {"type": "integer", "minimum": 1},
     "roots": {"type": "array", "items": {"type": "object"}},
     "counts": {"type": "object"},
     "digest": {"type": "string"},

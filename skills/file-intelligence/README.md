@@ -1,11 +1,35 @@
 # File Intelligence
 
-File Intelligence 0.3 is a public-safe, read-only Windows knowledge engine for answering “what exists?”, “what role does it play?”, and “what changed over time?”. It combines a current catalog with stable FileCards, an append-oriented Event Store, lightweight snapshots, and semantic change summaries. The repository contains generic code, schemas, documentation, and synthetic tests only. Machine catalogs, paths, events, snapshots, fingerprints, assertions, dashboards, and real benchmark results belong in external local state.
+File Intelligence 0.3.0 is a public-safe, read-only Windows knowledge engine for answering “what exists?”, “what role does it play?”, and “what changed over time?”. It combines a current catalog with stable FileCards, an append-oriented Event Store, lightweight snapshots, and semantic change summaries. The repository contains generic code, schemas, documentation, and synthetic tests only. Machine catalogs, paths, events, snapshots, fingerprints, assertions, dashboards, and real benchmark results belong in external local state.
+
+## Quick Start
+
+Use the stable Git tag on a new Windows computer:
+
+```powershell
+git clone --branch v0.3.0 --depth 1 https://github.com/zjh-hitsz/research-ai-skills.git
+& .\research-ai-skills\skills\file-intelligence\scripts\install.ps1
+$fi = Join-Path $env:USERPROFILE '.codex\skills\file-intelligence'
+python "$fi\scripts\file_intelligence_cli.py" status
+python "$fi\scripts\file_intelligence_cli.py" onboard --root <folder> --backend auto
+python "$fi\scripts\file_intelligence_cli.py" maintain
+python "$fi\scripts\file_intelligence_cli.py" dashboard
+python "$fi\scripts\file_intelligence_cli.py" timeline --days 7
+```
+
+1. Install the tagged Skill code into the current user's Codex Skill directory.
+2. Run `status`; it reports Everything/`es.exe` capability and whether onboarding or migration is required.
+3. Run Deep Onboarding once for explicitly selected roots. `auto` uses an available official ES bridge or the filesystem fallback.
+4. Keep the generated baseline and all history in `%LOCALAPPDATA%\FileIntelligence`.
+5. Run incremental Maintenance; do not rebuild an existing baseline by default.
+6. Open `File Intelligence Home.html` and `Computer Timeline.html` from the private state directory.
+
+Python 3.10 or later is required. If `python` is not the selected 3.10+ interpreter, use the matching `py -3.x` command.
 
 ## Capabilities
 
 - Everything `es.exe` or filesystem discovery with path-set consistency reporting;
-- SQLite catalog and explicit, backup-first v1-to-v2 migration;
+- SQLite catalog and explicit, backup-first v1/v2-to-v3 migration;
 - hierarchical Project, Workstream, Asset Group, Deliverable, and Archive nodes;
 - asset role, authority level, confidence, provenance, supersession, and review-only archive recommendation;
 - references and `DECLARES_AUTHORITY` edges extracted from text, code, notebooks, manifests, and Office documents;
@@ -44,6 +68,8 @@ Ask Codex to install repository path `skills/file-intelligence`, or from a clone
 
 The code destination is the current user's Codex Skill directory. Private state defaults to `%LOCALAPPDATA%\FileIntelligence`.
 
+Codex discovers the installed folder by its `SKILL.md` name, `$file-intelligence`. A new Codex task normally sees it automatically; restart Codex only if the current session cached the Skill list before installation.
+
 ## First run and migration
 
 ```powershell
@@ -61,6 +87,35 @@ python scripts\file_intelligence_cli.py migrate --apply
 ```
 
 The apply command creates a SHA-256 backup manifest under the external state's `migrations` folder. `rollback` previews restoration unless `--apply` is also given.
+
+## Update without losing history
+
+Update only the Skill code. Never delete `%LOCALAPPDATA%\FileIntelligence` merely to upgrade the Skill:
+
+```powershell
+Set-Location .\research-ai-skills
+git fetch --tags origin
+git checkout v0.3.0
+& .\skills\file-intelligence\scripts\update.ps1
+$fi = Join-Path $env:USERPROFILE '.codex\skills\file-intelligence'
+python "$fi\scripts\file_intelligence_cli.py" --version
+python "$fi\scripts\file_intelligence_cli.py" status
+```
+
+If `status` reports `MIGRATION_REQUIRED`, preview and then explicitly apply the migration:
+
+```powershell
+python "$fi\scripts\file_intelligence_cli.py" migrate
+python "$fi\scripts\file_intelligence_cli.py" migrate --apply
+```
+
+The update installer replaces the code folder atomically and leaves the external catalog, Timeline, snapshots, assertions, and migration backups unchanged.
+
+## Per-machine private state
+
+GitHub distributes engine code, rules, schemas, and installation helpers. Each computer creates its own `%LOCALAPPDATA%\FileIntelligence` and does not share catalog rows, File IDs, absolute paths, snapshots, Timeline events, communication evidence, or user assertions.
+
+New Windows baselines bind to a SHA-256 digest derived from the local Windows MachineGuid without storing the raw identifier. Legacy v0.1/v0.2 bindings remain accepted on the original machine. If a private state is copied to another computer, `status` reports `MACHINE_REBIND_REQUIRED` and Maintenance refuses to continue silently. Review the foreign state separately; do not overwrite the new computer's local baseline.
 
 ## Project and asset queries
 

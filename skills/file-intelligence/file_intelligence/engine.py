@@ -118,9 +118,36 @@ def extension_for(name: str) -> str:
     return Path(name).suffix.casefold()
 
 
-def machine_binding() -> str:
+def legacy_machine_binding() -> str:
     material = "|".join((platform.node(), platform.system(), platform.machine()))
     return hashlib.sha256(material.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _windows_machine_guid() -> str | None:
+    if platform.system() != "Windows":
+        return None
+    try:
+        import winreg
+
+        access = winreg.KEY_READ | getattr(winreg, "KEY_WOW64_64KEY", 0)
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0, access) as key:
+            value, _ = winreg.QueryValueEx(key, "MachineGuid")
+        return str(value).strip() or None
+    except (ImportError, OSError):
+        return None
+
+
+def machine_binding() -> str:
+    machine_guid = _windows_machine_guid()
+    if not machine_guid:
+        return legacy_machine_binding()
+    material = "|".join(("windows-machine-guid-v2", machine_guid, platform.system(), platform.machine()))
+    return hashlib.sha256(material.encode("utf-8", errors="replace")).hexdigest()
+
+
+def machine_binding_matches(stored: object) -> bool:
+    value = str(stored or "")
+    return value in {machine_binding(), legacy_machine_binding()}
 
 
 def quick_fingerprint(path: Path, size: int, sample_bytes: int = 65536) -> str | None:
@@ -778,6 +805,7 @@ def deep_onboard(
         "generated_at": stamp,
         "mode": "MAINTENANCE_READY",
         "machine_binding": binding,
+        "machine_binding_version": 2 if _windows_machine_guid() else 1,
         "roots": scopes,
         "backend": snapshot["backend"],
         "counts": counts,
@@ -931,7 +959,7 @@ def maintain(
             f"Catalog schema v{schema['version']} requires explicit `migrate --apply` before Maintenance; no state was changed."
         )
     baseline = read_json(baseline_path)
-    if baseline.get("machine_binding") != machine_binding():
+    if not machine_binding_matches(baseline.get("machine_binding")):
         raise FileIntelligenceError("Local state is bound to another machine. Run explicit Deep Onboarding or a reviewed rebind.")
     scopes = baseline.get("roots", [])
     effective_backend = backend
@@ -1080,6 +1108,7 @@ def status(*, state_dir: str | Path | None = None, everything_cli: str | Path | 
     capability = everything_status(everything_cli, state)
     if not baseline_path.is_file() or not catalog_path.is_file():
         return {
+            "skill_version": __version__,
             "schema_version": SCHEMA_VERSION,
             "status": "DEEP_ONBOARDING_REQUIRED",
             "baseline_present": False,
@@ -1088,7 +1117,7 @@ def status(*, state_dir: str | Path | None = None, everything_cli: str | Path | 
             "real_execution_enabled": False,
         }
     baseline = read_json(baseline_path)
-    binding_matches = baseline.get("machine_binding") == machine_binding()
+    binding_matches = machine_binding_matches(baseline.get("machine_binding"))
     schema = inspect_schema(catalog_path)
     if schema.get("migration_required"):
         uri = f"file:{catalog_path.as_posix()}?mode=ro"
@@ -1100,6 +1129,7 @@ def status(*, state_dir: str | Path | None = None, everything_cli: str | Path | 
                 "communication_records": connection.execute("SELECT COUNT(*) FROM files WHERE is_communication=1 AND status='present'").fetchone()[0],
             }
         return {
+            "skill_version": __version__,
             "schema_version": schema["version"], "target_schema_version": SCHEMA_VERSION,
             "status": "MIGRATION_REQUIRED", "baseline_present": True, "baseline_id": baseline.get("baseline_id"),
             "machine_binding_valid": binding_matches, "counts": counts, "state_dir": str(state),
@@ -1123,6 +1153,7 @@ def status(*, state_dir: str | Path | None = None, everything_cli: str | Path | 
             "open_asset_alerts": connection.execute("SELECT COUNT(*) FROM asset_alerts WHERE status='OPEN'").fetchone()[0],
         }
     return {
+        "skill_version": __version__,
         "schema_version": SCHEMA_VERSION,
         "status": "MAINTENANCE_READY" if binding_matches else "MACHINE_REBIND_REQUIRED",
         "baseline_present": True,

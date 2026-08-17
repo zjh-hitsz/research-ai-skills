@@ -77,6 +77,7 @@ class ProjectUnderstandingTests(unittest.TestCase):
                 baseline["counts"]["files"] + baseline["counts"]["aggregate_files"],
             )
             self.assertTrue(Path(result["dashboard"]).is_file())
+            self.assertIn("File Intelligence v0.3.0", Path(result["dashboard"]).read_text(encoding="utf-8"))
 
             asset = get_asset_details(model, state_dir=state, verify_full_hash=True)
             self.assertEqual(asset["role"], "canonical_model")
