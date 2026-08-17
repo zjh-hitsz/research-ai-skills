@@ -18,9 +18,26 @@ from typing import Any, Iterable
 from . import __version__
 from .classification import aggregate_kind, volatile_class
 from .dashboard import build_dashboard
-from .database import SCHEMA_VERSION, connect_current, inspect_schema, migrate_v1_to_v2, migration_plan, rollback_migration
+from .database import SCHEMA_VERSION, connect_current, inspect_schema, migrate_to_current, migration_plan, rollback_migration
 from .fingerprints import full_sha256, staged_sample_fingerprint
 from .paths import path_key as canonical_path_key
+from .timeline import (
+    build_timeline_page,
+    context_summary as build_context_summary,
+    correlate_identities,
+    create_snapshot,
+    file_history as query_file_history,
+    initialize_identities,
+    materialize_semantic_changes,
+    project_history as query_project_history,
+    query_timeline,
+    record_maintenance_events,
+    retention_plan,
+    schedule_plan,
+    storage_growth as query_storage_growth,
+    sync_file_cards,
+    update_project_activity,
+)
 from .understanding import (
     asset_details as query_asset_details,
     list_assertions as query_assertions,
@@ -135,7 +152,10 @@ def _is_below(path: Path, parent: Path) -> bool:
         return False
 
 
-def _candidate_everything_paths(explicit: str | Path | None = None) -> Iterable[Path]:
+def _candidate_everything_paths(
+    explicit: str | Path | None = None,
+    state_dir: str | Path | None = None,
+) -> Iterable[Path]:
     if explicit:
         yield Path(explicit).expanduser()
     configured = os.environ.get("FILE_INTELLIGENCE_EVERYTHING_CLI")
@@ -149,7 +169,7 @@ def _candidate_everything_paths(explicit: str | Path | None = None) -> Iterable[
         root = os.environ.get(variable)
         if root:
             yield Path(root) / "Everything" / "es.exe"
-    tool_root = default_state_dir() / "tools" / "Everything-ES"
+    tool_root = Path(state_dir).resolve() / "tools" / "Everything-ES" if state_dir else default_state_dir() / "tools" / "Everything-ES"
     if tool_root.is_dir():
         yield from sorted(tool_root.glob("*/es.exe"), reverse=True)
 
@@ -171,9 +191,12 @@ def _everything_registry_install() -> Path | None:
     return None
 
 
-def find_everything_cli(explicit: str | Path | None = None) -> Path | None:
+def find_everything_cli(
+    explicit: str | Path | None = None,
+    state_dir: str | Path | None = None,
+) -> Path | None:
     seen: set[str] = set()
-    for candidate in _candidate_everything_paths(explicit):
+    for candidate in _candidate_everything_paths(explicit, state_dir):
         marker = path_key(candidate)
         if marker in seen:
             continue
@@ -183,8 +206,11 @@ def find_everything_cli(explicit: str | Path | None = None) -> Path | None:
     return None
 
 
-def everything_status(explicit: str | Path | None = None) -> dict[str, Any]:
-    cli = find_everything_cli(explicit)
+def everything_status(
+    explicit: str | Path | None = None,
+    state_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    cli = find_everything_cli(explicit, state_dir)
     service_install = False
     for variable in ("ProgramFiles", "ProgramFiles(x86)"):
         root = os.environ.get(variable)
@@ -246,6 +272,7 @@ def _record(
     scope: dict[str, str],
     *,
     canonical_input: bool = False,
+    native_file_id: str | None = None,
 ) -> dict[str, Any]:
     root = Path(scope["path"])
     try:
@@ -267,6 +294,10 @@ def _record(
         "is_communication": "communication" in scope["kind"],
         "volatile_class": volatile_category if is_volatile else None,
         "status": "present",
+        "file_id": None,
+        "native_file_id": native_file_id,
+        "identity_confidence": None,
+        "identity_evidence_json": None,
     }
 
 
@@ -342,7 +373,11 @@ def _scan_filesystem(scopes: list[dict[str, str]], state_dir: Path) -> dict[str,
                 except OSError as exc:
                     errors.append({"path": str(path), "error": str(exc)})
                     continue
-                item = _record(path.resolve(), stat.st_size, str(stat.st_mtime_ns), str(stat.st_ctime_ns), scope, canonical_input=True)
+                native_id = f"{int(getattr(stat, 'st_dev', 0) or 0):x}:{int(getattr(stat, 'st_ino', 0) or 0):x}" if int(getattr(stat, "st_ino", 0) or 0) else None
+                item = _record(
+                    path.resolve(), stat.st_size, str(stat.st_mtime_ns), str(stat.st_ctime_ns), scope,
+                    canonical_input=True, native_file_id=native_id,
+                )
                 previous = records.get(item["path_key"])
                 if previous and item["is_communication"]:
                     item["scope_kind"] = "primary+communication"
@@ -464,12 +499,12 @@ def scan(
 ) -> dict[str, Any]:
     if backend not in {"auto", "everything", "filesystem"}:
         raise FileIntelligenceError(f"Unsupported backend: {backend}")
-    es_path = find_everything_cli(everything_cli)
+    es_path = find_everything_cli(everything_cli, state_dir)
     warning = None
     if backend in {"auto", "everything"} and es_path:
         try:
             result = _scan_everything(scopes, state_dir, es_path)
-            result["everything"] = everything_status(es_path)
+            result["everything"] = everything_status(es_path, state_dir)
             return result
         except (FileIntelligenceError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
             if backend == "everything":
@@ -481,7 +516,7 @@ def scan(
         warning = "Everything ES.exe was not found; used the read-only filesystem fallback."
     result = _scan_filesystem(scopes, state_dir)
     result["warning"] = warning
-    result["everything"] = everything_status(everything_cli)
+    result["everything"] = everything_status(everything_cli, state_dir)
     return result
 
 
@@ -594,8 +629,9 @@ def _replace_catalog(connection: sqlite3.Connection, records: list[dict[str, Any
         """INSERT INTO files (
             path_key,path,root_path,relative_path,filename,extension,size,modified,created,
             scope_kind,is_communication,project_id,project_name,fingerprint,sample_fingerprint,full_sha256,
-            fingerprint_stage,volatile_class,status,first_seen,last_seen,missing_since
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            fingerprint_stage,volatile_class,status,first_seen,last_seen,missing_since,file_id,native_file_id,
+            identity_confidence,identity_evidence_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [
             (
                 row["path_key"], row["path"], row["root_path"], row["relative_path"], row["filename"],
@@ -604,6 +640,8 @@ def _replace_catalog(connection: sqlite3.Connection, records: list[dict[str, Any
                 row.get("fingerprint"), row.get("sample_fingerprint"), row.get("full_sha256"),
                 int(row.get("fingerprint_stage") or 0), row.get("volatile_class"),
                 row.get("status", "present"), row.get("first_seen", stamp), stamp, row.get("missing_since"),
+                row.get("file_id"), row.get("native_file_id"), float(row.get("identity_confidence") or 0.7),
+                row.get("identity_evidence_json") or json.dumps(row.get("identity_evidence", []), ensure_ascii=False),
             )
             for row in records
         ],
@@ -658,6 +696,17 @@ def _replace_aggregates(connection: sqlite3.Connection, aggregates: list[dict[st
                 aggregate["file_count"], aggregate["internal_indexing"], aggregate["rebuildability"], aggregate["confidence"],
                 json.dumps(aggregate["evidence"], ensure_ascii=False), stamp,
             ),
+        )
+    for project_id, in connection.execute("SELECT project_id FROM projects WHERE status='understood'"):
+        files = connection.execute(
+            "SELECT COUNT(*),COALESCE(SUM(size),0) FROM files WHERE status='present' AND project_id=?", (project_id,)
+        ).fetchone()
+        aggregate = connection.execute(
+            "SELECT COALESCE(SUM(file_count),0),COALESCE(SUM(total_size),0) FROM aggregate_nodes WHERE project_id=?", (project_id,)
+        ).fetchone()
+        connection.execute(
+            "UPDATE projects SET file_count=?,total_size=? WHERE project_id=?",
+            (int(files[0]) + int(aggregate[0]), int(files[1]) + int(aggregate[1]), project_id),
         )
 
 
@@ -715,6 +764,7 @@ def deep_onboard(
     projects = _assign_projects(records, scopes)
     _fingerprint_candidates(records, max(0, max_fingerprints))
     stamp = now_iso()
+    initialize_identities(records, stamp)
     run_id = "run_" + uuid.uuid4().hex[:20]
     binding = machine_binding()
     baseline_id = "baseline_" + hashlib.sha256(
@@ -762,12 +812,19 @@ def deep_onboard(
         _replace_catalog(connection, records, projects, stamp)
         _replace_aggregates(connection, aggregates, projects, stamp)
         _sync_record_fingerprints(connection, records, stamp)
+        sync_file_cards(connection, records, stamp)
         connection.execute("INSERT OR REPLACE INTO meta (key,value) VALUES (?,?)", ("baseline_id", baseline_id))
         connection.execute("INSERT OR REPLACE INTO meta (key,value) VALUES (?,?)", ("machine_binding", binding))
         _record_run(connection, summary)
+        snapshot_summary = create_snapshot(
+            connection, state, snapshot_kind="baseline", run_id=run_id, stamp=stamp,
+        )
         connection.commit()
         dashboard = build_dashboard(connection, state, last_summary=summary)
+        timeline_page = build_timeline_page(connection, state)
         summary["dashboard"] = str(dashboard)
+        summary["timeline"] = str(timeline_page)
+        summary["snapshot"] = snapshot_summary
     atomic_json(baseline_path, manifest)
     atomic_json(state / CHANGES_NAME, {"schema_version": SCHEMA_VERSION, "mode": "DEEP_ONBOARDING", "changes": [], "counts": {"new": 0, "changed": 0, "missing": 0}, "physical_actions": 0})
     return summary
@@ -790,6 +847,9 @@ def _diff(old_records: list[dict[str, Any]], current_records: list[dict[str, Any
             if before is not None:
                 counts["reappeared"] += 1
                 row["first_seen"] = before.get("first_seen")
+                row["file_id"] = before.get("file_id")
+                row["identity_confidence"] = before.get("identity_confidence")
+                row["identity_evidence_json"] = before.get("identity_evidence_json")
             changes.append({
                 "change_type": row["change_type"], "relative_path": row["relative_path"], "path": row["path"],
                 "path_key": row["path_key"], "project": row.get("project_name"),
@@ -798,6 +858,10 @@ def _diff(old_records: list[dict[str, Any]], current_records: list[dict[str, Any
         elif (int(before["size"]), str(before["modified"])) != (int(row["size"]), str(row["modified"])):
             row["change_type"] = "CHANGED"
             row["first_seen"] = before.get("first_seen")
+            row["file_id"] = before.get("file_id")
+            row["native_file_id"] = row.get("native_file_id") or before.get("native_file_id")
+            row["identity_confidence"] = before.get("identity_confidence")
+            row["identity_evidence_json"] = before.get("identity_evidence_json")
             counts["changed"] += 1
             changes.append({
                 "change_type": "CHANGED", "relative_path": row["relative_path"], "path": row["path"],
@@ -810,6 +874,10 @@ def _diff(old_records: list[dict[str, Any]], current_records: list[dict[str, Any
             row["full_sha256"] = before.get("full_sha256")
             row["fingerprint_stage"] = before.get("fingerprint_stage") or 0
             row["first_seen"] = before.get("first_seen")
+            row["file_id"] = before.get("file_id")
+            row["native_file_id"] = row.get("native_file_id") or before.get("native_file_id")
+            row["identity_confidence"] = before.get("identity_confidence")
+            row["identity_evidence_json"] = before.get("identity_evidence_json")
             row["change_type"] = "UNCHANGED"
             counts["unchanged"] += 1
     for key, before in old.items():
@@ -838,55 +906,7 @@ def _identity_events(
     run_id: str,
     stamp: str,
 ) -> list[dict[str, Any]]:
-    old = {row["path_key"]: row for row in previous}
-    current_by_key = {row["path_key"]: row for row in current}
-    missing = [old[item["path_key"]] for item in changes if item["change_type"] == "MISSING" and item["path_key"] in old]
-    arrivals = [current_by_key[item["path_key"]] for item in changes if item["change_type"] in {"NEW", "REAPPEARED"} and item["path_key"] in current_by_key]
-    old_present = [row for row in previous if row.get("status") == "present" and row["path_key"] in current_by_key]
-    events: list[dict[str, Any]] = []
-    used_missing: set[str] = set()
-    for arrival in arrivals:
-        sample = arrival.get("sample_fingerprint")
-        if not sample:
-            continue
-        moved_from = next(
-            (
-                row for row in missing
-                if row["path_key"] not in used_missing and int(row["size"]) == int(arrival["size"])
-                and (row.get("sample_fingerprint") or row.get("fingerprint")) == sample
-            ),
-            None,
-        )
-        if moved_from:
-            same_parent = Path(moved_from["path"]).parent == Path(arrival["path"]).parent
-            event_type = "RENAMED" if same_parent else "MOVED"
-            confidence = 1.0 if moved_from.get("full_sha256") and moved_from.get("full_sha256") == arrival.get("full_sha256") else 0.96
-            events.append({
-                "event_id": "event_" + uuid.uuid4().hex, "run_id": run_id, "event_type": event_type,
-                "source_path_key": moved_from["path_key"], "target_path_key": arrival["path_key"],
-                "full_sha256": arrival.get("full_sha256") or moved_from.get("full_sha256"), "confidence": confidence,
-                "evidence": [{"type": "content_similarity", "detail": "Size and Stage-1 head/middle/tail fingerprint match across missing and new paths."}],
-                "created_at": stamp,
-            })
-            used_missing.add(moved_from["path_key"])
-            continue
-        copied_from = next(
-            (
-                row for row in old_present
-                if row["path_key"] != arrival["path_key"] and int(row["size"]) == int(arrival["size"])
-                and (row.get("sample_fingerprint") or row.get("fingerprint")) == sample
-            ),
-            None,
-        )
-        if copied_from:
-            events.append({
-                "event_id": "event_" + uuid.uuid4().hex, "run_id": run_id, "event_type": "COPIED",
-                "source_path_key": copied_from["path_key"], "target_path_key": arrival["path_key"],
-                "full_sha256": arrival.get("full_sha256") or copied_from.get("full_sha256"), "confidence": 0.96,
-                "evidence": [{"type": "content_similarity", "detail": "Source remains present; size and Stage-1 head/middle/tail fingerprint match."}],
-                "created_at": stamp,
-            })
-    return events
+    return correlate_identities(previous, current, changes, run_id, stamp)
 
 
 def maintain(
@@ -895,6 +915,8 @@ def maintain(
     backend: str = "auto",
     everything_cli: str | Path | None = None,
     max_fingerprints: int = 2000,
+    deep: bool = False,
+    snapshot_kind: str | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     cpu_started = time.process_time()
@@ -912,7 +934,14 @@ def maintain(
     if baseline.get("machine_binding") != machine_binding():
         raise FileIntelligenceError("Local state is bound to another machine. Run explicit Deep Onboarding or a reviewed rebind.")
     scopes = baseline.get("roots", [])
-    snapshot = scan(scopes, state, backend, everything_cli)
+    effective_backend = backend
+    if backend == "auto":
+        baseline_backend = str(baseline.get("backend") or "")
+        if baseline_backend == "everything-es-index":
+            effective_backend = "everything"
+        elif baseline_backend == "filesystem-fallback":
+            effective_backend = "filesystem"
+    snapshot = scan(scopes, state, effective_backend, everything_cli)
     current = snapshot["records"]
     aggregates = snapshot.get("aggregates", [])
     projects = _assign_projects(current, scopes)
@@ -920,6 +949,20 @@ def maintain(
     with closing(_connect(catalog_path)) as connection:
         projects = _merge_understood_project_assignments(connection, current, projects)
         previous = _load_files(connection)
+        old_aggregates = [dict(row) for row in connection.execute("SELECT * FROM aggregate_nodes")]
+        understood_roots = {
+            row["project_id"]: row["root_path"]
+            for row in connection.execute("SELECT project_id,root_path FROM projects WHERE status='understood' AND root_path IS NOT NULL")
+        }
+        aggregate_roots = sorted(
+            [(Path(root), project_id) for project_id, root in understood_roots.items()]
+            + [(Path(item["root_path"]), item["project_id"]) for item in projects if item.get("root_path")],
+            key=lambda item: len(str(item[0])), reverse=True,
+        )
+        for aggregate in aggregates:
+            aggregate["project_id"] = next(
+                (project_id for root, project_id in aggregate_roots if _is_below(Path(aggregate["path"]), root)), None,
+            )
         changes, change_counts = _diff(previous, current)
         candidates = [row for row in current if row.get("change_type") in {"NEW", "REAPPEARED", "CHANGED"}]
         _fingerprint_candidates(candidates, max(0, max_fingerprints))
@@ -943,41 +986,20 @@ def maintain(
         for event in identity_events:
             change_counts[event["event_type"].casefold()] = change_counts.get(event["event_type"].casefold(), 0) + 1
         volatile_changes = sum(1 for item in changes if item.get("volatile"))
-        meaningful_changes = len(changes) - volatile_changes
         affected_projects = sorted({str(item["project"]) for item in changes if item.get("project") and not item.get("volatile")})
+        current_by_key = {row["path_key"]: row for row in current}
+        affected_project_ids = sorted({
+            str((current_by_key.get(item["path_key"], {}) or {}).get("project_id"))
+            for item in changes if not item.get("volatile")
+            if (current_by_key.get(item["path_key"], {}) or {}).get("project_id")
+        })
+        event_metrics = record_maintenance_events(
+            connection, previous, current, changes, identity_events, old_aggregates, aggregates, run_id, stamp,
+        )
         catalog_counts = _counts(current, projects, aggregates)
         catalog_counts["projects"] += connection.execute(
             "SELECT COUNT(*) FROM projects WHERE status='understood'"
         ).fetchone()[0]
-        summary = {
-            "schema_version": SCHEMA_VERSION,
-            "run_id": run_id,
-            "mode": "MAINTENANCE",
-            "status": "NO_OP" if not changes else "CHANGES_RECORDED",
-            "generated_at": stamp,
-            "baseline_id": baseline["baseline_id"],
-            "backend": snapshot["backend"],
-            "counts": change_counts,
-            "catalog_counts": catalog_counts,
-            "filesystem_changes": len(changes),
-            "volatile_changes": volatile_changes,
-            "meaningful_changes": meaningful_changes,
-            "semantic_status": "NO_MEANINGFUL_CHANGE" if meaningful_changes == 0 else "MEANINGFUL_CHANGE",
-            "identity_events": {key: sum(1 for event in identity_events if event["event_type"] == key) for key in ("MOVED", "RENAMED", "COPIED")},
-            "affected_projects": affected_projects,
-            "project_reinspection": "not_required" if not affected_projects else "targeted_refresh_recommended",
-            "scope_errors": snapshot.get("errors", []),
-            "warning": snapshot.get("warning"),
-            "everything": snapshot["everything"],
-            "physical_actions": 0,
-            "performance": {
-                "elapsed_seconds": round(time.perf_counter() - started, 6),
-                "cpu_seconds": round(time.process_time() - cpu_started, 6),
-                "files_discovered": len(current) + sum(int(item["file_count"]) for item in aggregates),
-                "content_inspected": 0,
-                "stage1_hashes": sum(1 for row in candidates if row.get("sample_fingerprint")),
-            },
-        }
         _replace_catalog(connection, current, projects, stamp)
         _replace_aggregates(connection, aggregates, projects, stamp)
         _sync_record_fingerprints(connection, current, stamp)
@@ -991,10 +1013,62 @@ def maintain(
                     event["full_sha256"], event["confidence"], json.dumps(event["evidence"], ensure_ascii=False), event["created_at"],
                 ),
             )
+        deep_results: list[dict[str, Any]] = []
+        if deep:
+            for project_id in affected_project_ids:
+                root = understood_roots.get(project_id)
+                if not root or not Path(root).is_dir():
+                    continue
+                deep_results.append(build_project_understanding(
+                    connection, Path(root), max_inspections=120, max_stage1_hashes=400, max_full_hashes=8, commit=False,
+                ))
+        sync_file_cards(connection, current, stamp)
+        activity_events = update_project_activity(connection, run_id, stamp)
+        semantic_summary = materialize_semantic_changes(connection, run_id, stamp)
+        meaningful_changes = int(semantic_summary["meaningful_event_count"])
+        snapshot_summary = create_snapshot(
+            connection, state, snapshot_kind=snapshot_kind or ("weekly" if deep else "daily"), run_id=run_id, stamp=stamp,
+        )
+        summary = {
+            "schema_version": SCHEMA_VERSION,
+            "run_id": run_id,
+            "mode": "WEEKLY_DEEP_MAINTENANCE" if deep else "MAINTENANCE",
+            "status": "NO_OP" if not changes and event_metrics["events_recorded"] == 0 and not activity_events else "CHANGES_RECORDED",
+            "generated_at": stamp,
+            "baseline_id": baseline["baseline_id"],
+            "backend": snapshot["backend"],
+            "counts": change_counts,
+            "catalog_counts": catalog_counts,
+            "filesystem_changes": len(changes),
+            "volatile_changes": volatile_changes,
+            "meaningful_changes": meaningful_changes,
+            "semantic_status": "NO_MEANINGFUL_CHANGE" if meaningful_changes == 0 else "MEANINGFUL_CHANGE",
+            "semantic_summary": semantic_summary,
+            "events_recorded": event_metrics["events_recorded"] + len(activity_events),
+            "identity_events": {key: sum(1 for event in identity_events if event["event_type"] == key) for key in ("MOVED", "RENAMED", "COPIED", "POSSIBLE_MOVE")},
+            "affected_projects": affected_projects,
+            "project_reinspection": "completed" if deep and deep_results else ("not_required" if not affected_projects else "targeted_refresh_recommended"),
+            "deep_project_refreshes": len(deep_results),
+            "snapshot": snapshot_summary,
+            "scope_errors": snapshot.get("errors", []),
+            "warning": snapshot.get("warning"),
+            "everything": snapshot["everything"],
+            "physical_actions": 0,
+            "performance": {
+                "elapsed_seconds": round(time.perf_counter() - started, 6),
+                "cpu_seconds": round(time.process_time() - cpu_started, 6),
+                "files_discovered": len(current) + sum(int(item["file_count"]) for item in aggregates),
+                "content_inspected": sum(int(result.get("inspections", {}).get("selected", 0)) for result in deep_results),
+                "stage1_hashes": sum(1 for row in candidates if row.get("sample_fingerprint")),
+                "documents_parsed": sum(int(result.get("inspections", {}).get("successful", 0)) for result in deep_results),
+            },
+        }
         _record_run(connection, summary)
         connection.commit()
         dashboard = build_dashboard(connection, state, last_summary=summary)
+        timeline_page = build_timeline_page(connection, state)
         summary["dashboard"] = str(dashboard)
+        summary["timeline"] = str(timeline_page)
     atomic_json(state / CHANGES_NAME, {**summary, "changes": changes})
     return summary
 
@@ -1003,7 +1077,7 @@ def status(*, state_dir: str | Path | None = None, everything_cli: str | Path | 
     state = resolve_state_dir(state_dir)
     baseline_path = state / BASELINE_NAME
     catalog_path = state / CATALOG_NAME
-    capability = everything_status(everything_cli)
+    capability = everything_status(everything_cli, state)
     if not baseline_path.is_file() or not catalog_path.is_file():
         return {
             "schema_version": SCHEMA_VERSION,
@@ -1043,6 +1117,10 @@ def status(*, state_dir: str | Path | None = None, everything_cli: str | Path | 
             "dependencies": connection.execute("SELECT COUNT(*) FROM dependencies").fetchone()[0],
             "authority_assets": connection.execute("SELECT COUNT(*) FROM assets WHERE authority_level IN ('PRIMARY','CANONICAL','ACTIVE')").fetchone()[0],
             "aggregate_nodes": connection.execute("SELECT COUNT(*) FROM aggregate_nodes").fetchone()[0],
+            "file_cards": connection.execute("SELECT COUNT(*) FROM file_cards").fetchone()[0],
+            "events": connection.execute("SELECT COUNT(*) FROM events").fetchone()[0],
+            "snapshots": connection.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0],
+            "open_asset_alerts": connection.execute("SELECT COUNT(*) FROM asset_alerts WHERE status='OPEN'").fetchone()[0],
         }
     return {
         "schema_version": SCHEMA_VERSION,
@@ -1082,7 +1160,7 @@ def last_changes(*, state_dir: str | Path | None = None) -> dict[str, Any]:
 def migrate_state(*, state_dir: str | Path | None = None, apply: bool = False) -> dict[str, Any]:
     state = resolve_state_dir(state_dir)
     try:
-        return migrate_v1_to_v2(state, apply=apply)
+        return migrate_to_current(state, apply=apply)
     except (OSError, sqlite3.Error, ValueError) as exc:
         raise FileIntelligenceError(f"Schema migration failed without modifying project files: {exc}") from exc
 
@@ -1114,13 +1192,18 @@ def understand_project(
                 connection, root, max_inspections=max_inspections, max_stage1_hashes=max_stage1_hashes,
                 max_full_hashes=max_full_hashes, content_exclude_patterns=content_exclude_patterns,
             )
+            result["semantic_summary"] = materialize_semantic_changes(connection, result["timeline_run_id"], now_iso())
+            sync_file_cards(connection, _load_files(connection), now_iso())
+            connection.commit()
             dashboard = build_dashboard(connection, state, last_summary={"semantic_status": "PROJECT_UNDERSTANDING_UPDATED"})
+            timeline_page = build_timeline_page(connection, state)
     except (ValueError, sqlite3.Error) as exc:
         raise FileIntelligenceError(str(exc)) from exc
     output_dir = state / "project_understanding"
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"{result['project']['project_id']}.json"
     result["dashboard"] = str(dashboard)
+    result["timeline"] = str(timeline_page)
     result["result_path"] = str(output)
     atomic_json(output, result)
     return result
@@ -1189,6 +1272,106 @@ def dashboard(*, state_dir: str | Path | None = None) -> dict[str, Any]:
     try:
         with closing(_connect(state / CATALOG_NAME)) as connection:
             path = build_dashboard(connection, state)
+            timeline_path = build_timeline_page(connection, state)
     except (OSError, sqlite3.Error) as exc:
         raise FileIntelligenceError(str(exc)) from exc
-    return {"dashboard": str(path), "physical_actions": 0}
+    return {"dashboard": str(path), "timeline": str(timeline_path), "physical_actions": 0}
+
+
+def timeline_history(
+    *,
+    state_dir: str | Path | None = None,
+    since_last_scan: bool = False,
+    days: int | None = None,
+    from_value: str | None = None,
+    to_value: str | None = None,
+    project: str | None = None,
+    event_type: str | None = None,
+    importance: str | None = None,
+    limit: int = 500,
+) -> dict[str, Any]:
+    state = resolve_state_dir(state_dir)
+    try:
+        with closing(_connect(state / CATALOG_NAME)) as connection:
+            return query_timeline(
+                connection, since_last_scan=since_last_scan, days=days, from_value=from_value, to_value=to_value,
+                project=project, event_type=event_type, importance=importance, limit=limit,
+            )
+    except (ValueError, sqlite3.Error) as exc:
+        raise FileIntelligenceError(str(exc)) from exc
+
+
+def timeline_context(
+    *,
+    state_dir: str | Path | None = None,
+    since_last_scan: bool = False,
+    days: int | None = None,
+    from_value: str | None = None,
+    to_value: str | None = None,
+    project: str | None = None,
+) -> dict[str, Any]:
+    state = resolve_state_dir(state_dir)
+    try:
+        with closing(_connect(state / CATALOG_NAME)) as connection:
+            return build_context_summary(
+                connection, since_last_scan=since_last_scan, days=days, from_value=from_value, to_value=to_value,
+                project=project,
+            )
+    except (ValueError, sqlite3.Error) as exc:
+        raise FileIntelligenceError(str(exc)) from exc
+
+
+def project_history(*, project: str, state_dir: str | Path | None = None, limit: int = 1000) -> dict[str, Any]:
+    state = resolve_state_dir(state_dir)
+    try:
+        with closing(_connect(state / CATALOG_NAME)) as connection:
+            return query_project_history(connection, project, limit=limit)
+    except (ValueError, sqlite3.Error) as exc:
+        raise FileIntelligenceError(str(exc)) from exc
+
+
+def file_history(*, file: str, state_dir: str | Path | None = None, limit: int = 500) -> dict[str, Any]:
+    state = resolve_state_dir(state_dir)
+    try:
+        with closing(_connect(state / CATALOG_NAME)) as connection:
+            return query_file_history(connection, file, limit=limit)
+    except (ValueError, sqlite3.Error) as exc:
+        raise FileIntelligenceError(str(exc)) from exc
+
+
+def storage_history(*, state_dir: str | Path | None = None, days: int = 7, project: str | None = None) -> dict[str, Any]:
+    state = resolve_state_dir(state_dir)
+    try:
+        with closing(_connect(state / CATALOG_NAME)) as connection:
+            return query_storage_growth(connection, days=days, project=project)
+    except (ValueError, sqlite3.Error) as exc:
+        raise FileIntelligenceError(str(exc)) from exc
+
+
+def snapshot_now(
+    *, state_dir: str | Path | None = None, snapshot_kind: str = "manual",
+) -> dict[str, Any]:
+    state = resolve_state_dir(state_dir)
+    stamp = now_iso()
+    try:
+        with closing(_connect(state / CATALOG_NAME)) as connection:
+            result = create_snapshot(connection, state, snapshot_kind=snapshot_kind, run_id=None, stamp=stamp)
+            connection.commit()
+            return {"snapshot": result, "physical_actions": 0}
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        raise FileIntelligenceError(str(exc)) from exc
+
+
+def retention(
+    *, state_dir: str | Path | None = None, apply: bool = False,
+) -> dict[str, Any]:
+    state = resolve_state_dir(state_dir)
+    try:
+        with closing(_connect(state / CATALOG_NAME)) as connection:
+            return retention_plan(connection, apply=apply)
+    except (ValueError, sqlite3.Error) as exc:
+        raise FileIntelligenceError(str(exc)) from exc
+
+
+def scheduler_support(*, state_dir: str | Path | None = None) -> dict[str, Any]:
+    return schedule_plan(PACKAGE_ROOT, resolve_state_dir(state_dir))

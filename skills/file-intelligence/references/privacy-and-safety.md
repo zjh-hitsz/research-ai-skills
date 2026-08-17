@@ -5,7 +5,7 @@ Before publishing or sharing this Skill, require all of the following:
 - no absolute personal path;
 - no credential, email address, account identifier, or machine identifier;
 - no real project artifact, private filename, or private project label;
-- no catalog, database, baseline, project graph, dependency edge, authority result, user assertion, state backup, fingerprint cache, dashboard, real benchmark, run output, transaction journal, approval request, rollback manifest, or machine hash manifest;
+- no catalog, database, baseline, FileCard, event history, snapshot, semantic summary, activity record, alert, project graph, dependency edge, authority result, user assertion, state backup, fingerprint cache, dashboard, Timeline page, scheduler log, real benchmark, run output, transaction journal, approval request, rollback manifest, or machine hash manifest;
 - no communication attachment record or source path;
 - only generic rules and disposable synthetic tests.
 

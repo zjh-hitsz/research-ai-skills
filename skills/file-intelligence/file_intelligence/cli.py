@@ -12,12 +12,20 @@ from .engine import (
     dashboard,
     deep_onboard,
     get_asset_details,
+    file_history,
     last_changes,
     list_projects,
     maintain,
     migrate_state,
+    project_history,
+    retention,
     rollback_state,
+    scheduler_support,
+    snapshot_now,
     status,
+    storage_history,
+    timeline_context,
+    timeline_history,
     understand_project,
 )
 
@@ -27,6 +35,14 @@ def _common(parser: argparse.ArgumentParser) -> None:
         "--state-dir", default=argparse.SUPPRESS,
         help="External local state directory. Accepted before or after the subcommand.",
     )
+
+
+def _time_range(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--since-last-scan", action="store_true")
+    parser.add_argument("--days", type=int)
+    parser.add_argument("--from", dest="from_value")
+    parser.add_argument("--to", dest="to_value")
+    parser.add_argument("--project")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,9 +66,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     maintenance = commands.add_parser("maintain", help="Compare registered scopes with the local catalog")
     _common(maintenance)
-    maintenance.add_argument("--backend", choices=("auto", "everything", "filesystem"), default="auto")
+    maintenance.add_argument(
+        "--backend", choices=("auto", "everything", "filesystem"), default="auto",
+        help="auto inherits the baseline backend; explicit values are reviewed overrides",
+    )
     maintenance.add_argument("--everything-cli")
     maintenance.add_argument("--max-fingerprints", type=int, default=2000)
+    maintenance.add_argument("--deep", action="store_true", help="Refresh only affected understood projects with bounded inspectors")
+    maintenance.add_argument("--snapshot-kind", choices=("daily", "weekly", "manual"))
 
     projects = commands.add_parser("projects", help="List heuristic local Project candidates")
     _common(projects)
@@ -94,6 +115,47 @@ def build_parser() -> argparse.ArgumentParser:
 
     home = commands.add_parser("dashboard", help="Regenerate File Intelligence Home from private local state")
     _common(home)
+
+    timeline = commands.add_parser("timeline", help="Query append-oriented historical events")
+    _common(timeline)
+    _time_range(timeline)
+    timeline.add_argument("--event-type")
+    timeline.add_argument("--importance", choices=("VERY_HIGH", "HIGH", "MEDIUM", "LOW", "VOLATILE"))
+    timeline.add_argument("--limit", type=int, default=500)
+
+    context = commands.add_parser("context-summary", help="Return a structured semantic summary for Codex natural-language answers")
+    _common(context)
+    _time_range(context)
+
+    important = commands.add_parser("important-changes", help="Return important semantic changes and alerts for a time range")
+    _common(important)
+    _time_range(important)
+
+    project_history_parser = commands.add_parser("project-history", help="Show events and snapshots for one project")
+    _common(project_history_parser)
+    project_history_parser.add_argument("project")
+    project_history_parser.add_argument("--limit", type=int, default=1000)
+
+    file_history_parser = commands.add_parser("file-history", help="Show a stable FileCard and its history by path or file identity")
+    _common(file_history_parser)
+    file_history_parser.add_argument("file")
+    file_history_parser.add_argument("--limit", type=int, default=500)
+
+    growth = commands.add_parser("storage-growth", help="Compare materialized storage snapshots")
+    _common(growth)
+    growth.add_argument("--days", type=int, default=7)
+    growth.add_argument("--project")
+
+    snapshot_parser = commands.add_parser("snapshot", help="Create a lightweight materialized knowledge snapshot")
+    _common(snapshot_parser)
+    snapshot_parser.add_argument("--kind", choices=("daily", "weekly", "monthly", "manual"), default="manual")
+
+    retention_parser = commands.add_parser("retention", help="Preview conservative private-state retention; apply only explicitly")
+    _common(retention_parser)
+    retention_parser.add_argument("--apply", action="store_true")
+
+    scheduler = commands.add_parser("schedule-plan", help="Describe reversible Windows scheduled-maintenance support without installing a task")
+    _common(scheduler)
     return parser
 
 
@@ -122,6 +184,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 backend=arguments.backend,
                 everything_cli=arguments.everything_cli,
                 max_fingerprints=arguments.max_fingerprints,
+                deep=arguments.deep,
+                snapshot_kind=arguments.snapshot_kind,
             )
         elif arguments.command == "projects":
             payload = list_projects(state_dir=arguments.state_dir)
@@ -145,6 +209,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "schema_version": payload["schema_version"], "project": payload["project"],
                     "workstreams": payload["workstreams"], "authority_count": payload.get("authority_total", len(payload["authorities"])),
                     "authority_sample": payload["authorities"][:20], "dependencies": payload["dependencies"],
+                    "authority_scope_counts": payload.get("authority_scope_counts", {}), "tool_roles": payload.get("tool_roles", []),
                     "duplicates": payload["duplicates"], "archive_candidates": payload["archive_candidates"],
                     "inspections": payload["inspections"], "hashes": payload["hashes"],
                     "dashboard": payload["dashboard"], "result_path": payload["result_path"], "physical_actions": 0,
@@ -163,8 +228,37 @@ def main(argv: Sequence[str] | None = None) -> int:
                 subject_type=arguments.subject_type, subject_key=arguments.subject_key,
                 predicate=arguments.predicate, value=value,
             )
-        else:
+        elif arguments.command == "dashboard":
             payload = dashboard(state_dir=arguments.state_dir)
+        elif arguments.command == "timeline":
+            payload = timeline_history(
+                state_dir=arguments.state_dir, since_last_scan=arguments.since_last_scan, days=arguments.days,
+                from_value=arguments.from_value, to_value=arguments.to_value, project=arguments.project,
+                event_type=arguments.event_type, importance=arguments.importance, limit=arguments.limit,
+            )
+        elif arguments.command in {"context-summary", "important-changes"}:
+            payload = timeline_context(
+                state_dir=arguments.state_dir, since_last_scan=arguments.since_last_scan, days=arguments.days,
+                from_value=arguments.from_value, to_value=arguments.to_value, project=arguments.project,
+            )
+            if arguments.command == "important-changes":
+                payload = {
+                    "time_range": payload["time_range"], "important_changes": payload["important_changes"],
+                    "asset_alerts": payload["asset_alerts"], "uncertainties": payload["uncertainties"],
+                    "meaningful_event_count": payload["meaningful_event_count"], "physical_actions": 0,
+                }
+        elif arguments.command == "project-history":
+            payload = project_history(project=arguments.project, state_dir=arguments.state_dir, limit=arguments.limit)
+        elif arguments.command == "file-history":
+            payload = file_history(file=arguments.file, state_dir=arguments.state_dir, limit=arguments.limit)
+        elif arguments.command == "storage-growth":
+            payload = storage_history(state_dir=arguments.state_dir, days=arguments.days, project=arguments.project)
+        elif arguments.command == "snapshot":
+            payload = snapshot_now(state_dir=arguments.state_dir, snapshot_kind=arguments.kind)
+        elif arguments.command == "retention":
+            payload = retention(state_dir=arguments.state_dir, apply=arguments.apply)
+        else:
+            payload = scheduler_support(state_dir=arguments.state_dir)
     except FileIntelligenceError as exc:
         print(json.dumps({"status": "ERROR", "error": str(exc), "physical_actions": 0}, ensure_ascii=False, indent=2), file=sys.stderr)
         return 2

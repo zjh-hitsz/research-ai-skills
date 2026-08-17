@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/file-intelligence/semantic-context.schema.json",
+  "title": "File Intelligence natural-language context summary",
+  "type": "object",
+  "required": ["time_range", "important_changes", "project_changes", "storage_changes", "asset_alerts", "uncertainties", "physical_actions"],
+  "properties": {
+    "time_range": {"type": "object"},
+    "important_changes": {"type": "array", "items": {"$ref": "timeline-event.schema.json"}},
+    "project_changes": {"type": "array", "items": {"type": "object"}},
+    "storage_changes": {"type": "array", "items": {"type": "object"}},
+    "asset_alerts": {"type": "array", "items": {"type": "object"}},
+    "uncertainties": {"type": "array", "items": {"type": "object"}},
+    "physical_actions": {"const": 0}
+  },
+  "additionalProperties": true
+}

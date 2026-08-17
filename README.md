@@ -40,7 +40,7 @@ Each Skill contains a required `SKILL.md` plus only the resources needed at runt
 | `map-physical-fields` | 0.1.0 | implementation | Validate and conservatively map regular 2D scalar fields. | `validate-simulation-evidence` |
 | `audit-research-project` | 0.1.0 | implementation | Produce a read-only project inventory and bounded risk audit. | None |
 | `handoff-research-work` | 0.1.0 | implementation | Freeze an audited selection into a verifiable handoff manifest. | `audit-research-project` |
-| `file-intelligence` | 0.2.0 | released | Build a private Windows file and Project Understanding graph, then maintain it incrementally without physical file changes. | None |
+| `file-intelligence` | 0.3.0 | released | Maintain private Windows file/project intelligence with append-oriented history, lightweight snapshots, semantic diffs, and no physical file changes. | None |
 
 The machine-readable source of versions, statuses, and dependencies is [registry/skill-registry.yaml](registry/skill-registry.yaml).
 

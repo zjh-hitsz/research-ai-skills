@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "high_value_extensions": [
     ".md", ".txt", ".pdf", ".docx", ".pptx", ".xlsx",
     ".py", ".ipynb", ".m", ".ps1", ".json", ".yaml", ".yml",

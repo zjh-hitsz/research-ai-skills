@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 APPLICATION_ID = 0x46494E54  # "FINT"
 
 
-SCHEMA_V2 = """
+SCHEMA_V3 = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS files (
     path_key TEXT PRIMARY KEY,
@@ -39,8 +39,14 @@ CREATE TABLE IF NOT EXISTS files (
     status TEXT NOT NULL,
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL,
-    missing_since TEXT
+    missing_since TEXT,
+    file_id TEXT,
+    native_file_id TEXT,
+    identity_confidence REAL,
+    identity_evidence_json TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_files_file_id ON files(file_id, status);
+CREATE INDEX IF NOT EXISTS idx_files_native_id ON files(native_file_id, status);
 CREATE TABLE IF NOT EXISTS projects (
     project_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -78,9 +84,14 @@ CREATE TABLE IF NOT EXISTS assets (
     rebuildability TEXT,
     archive_recommendation TEXT,
     superseded_by_path_key TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    asset_kind TEXT NOT NULL DEFAULT 'file',
+    entity_path TEXT,
+    authority_scope TEXT NOT NULL DEFAULT 'FILE_LOCAL',
+    authority_context_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assets_project ON assets(project_id, authority_level, role);
+CREATE INDEX IF NOT EXISTS idx_assets_scope ON assets(project_id, authority_scope, authority_level);
 CREATE TABLE IF NOT EXISTS dependencies (
     edge_id TEXT PRIMARY KEY,
     project_id TEXT,
@@ -167,6 +178,141 @@ CREATE TABLE IF NOT EXISTS runs (
     created_at TEXT NOT NULL,
     summary_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS file_cards (
+    file_id TEXT PRIMARY KEY,
+    native_file_id TEXT,
+    current_path_key TEXT,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    status TEXT NOT NULL,
+    identity_confidence REAL NOT NULL,
+    identity_evidence_json TEXT NOT NULL,
+    last_role TEXT,
+    last_authority TEXT,
+    authority_scope TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_file_cards_native ON file_cards(native_file_id);
+CREATE TABLE IF NOT EXISTS events (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    subject_type TEXT NOT NULL,
+    file_id TEXT,
+    path_key TEXT,
+    project_id TEXT,
+    workstream_id TEXT,
+    old_value_json TEXT,
+    new_value_json TEXT,
+    size_delta INTEGER NOT NULL DEFAULT 0,
+    path_before TEXT,
+    path_after TEXT,
+    confidence REAL NOT NULL,
+    evidence_json TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    semantic_importance TEXT NOT NULL,
+    importance_score REAL NOT NULL,
+    importance_reasons_json TEXT NOT NULL,
+    volatile_class TEXT,
+    resolution_status TEXT,
+    permanent INTEGER NOT NULL DEFAULT 0,
+    aggregate_count INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_events_time ON events(occurred_at, event_id);
+CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id, semantic_importance);
+CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_events_file ON events(file_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, occurred_at);
+CREATE TABLE IF NOT EXISTS snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    snapshot_kind TEXT NOT NULL,
+    run_id TEXT,
+    files_count INTEGER NOT NULL,
+    logical_size INTEGER NOT NULL,
+    disk_total INTEGER,
+    disk_used INTEGER,
+    disk_free INTEGER,
+    project_count INTEGER NOT NULL,
+    active_projects INTEGER NOT NULL,
+    frozen_projects INTEGER NOT NULL,
+    authority_asset_count INTEGER NOT NULL,
+    aggregate_size INTEGER NOT NULL,
+    potential_cleanup INTEGER NOT NULL,
+    potential_archive INTEGER NOT NULL,
+    important_asset_summary_json TEXT NOT NULL,
+    catalog_digest TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_time ON snapshots(created_at, snapshot_kind);
+CREATE TABLE IF NOT EXISTS project_snapshots (
+    snapshot_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    project_name TEXT NOT NULL,
+    total_size INTEGER NOT NULL,
+    file_count INTEGER NOT NULL,
+    lifecycle TEXT,
+    activity_status TEXT,
+    workstream_status_json TEXT NOT NULL,
+    authority_summary_json TEXT NOT NULL,
+    recent_activity_json TEXT NOT NULL,
+    PRIMARY KEY(snapshot_id, project_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_snapshots_history ON project_snapshots(project_id, snapshot_id);
+CREATE TABLE IF NOT EXISTS semantic_changes (
+    semantic_change_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    project_id TEXT,
+    workstream_id TEXT,
+    change_kind TEXT NOT NULL,
+    importance TEXT NOT NULL,
+    importance_score REAL NOT NULL,
+    event_count INTEGER NOT NULL,
+    size_delta INTEGER NOT NULL,
+    summary_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_semantic_changes_time ON semantic_changes(created_at, importance);
+CREATE INDEX IF NOT EXISTS idx_semantic_changes_project ON semantic_changes(project_id, created_at);
+CREATE TABLE IF NOT EXISTS asset_alerts (
+    alert_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    file_id TEXT,
+    project_id TEXT,
+    path_before TEXT,
+    alert_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    importance TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    first_seen TEXT NOT NULL,
+    resolved_at TEXT,
+    resolution_event_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_asset_alerts_open ON asset_alerts(status, importance, first_seen);
+CREATE TABLE IF NOT EXISTS project_activity (
+    project_id TEXT PRIMARY KEY,
+    activity_status TEXT NOT NULL,
+    last_meaningful_activity TEXT,
+    activity_score REAL NOT NULL,
+    evidence_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workstream_activity (
+    workstream_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    activity_status TEXT NOT NULL,
+    last_meaningful_activity TEXT,
+    activity_score REAL NOT NULL,
+    evidence_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_tools (
+    project_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    centrality TEXT NOT NULL,
+    score REAL NOT NULL,
+    evidence_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(project_id, tool_name)
+);
 """
 
 
@@ -175,7 +321,7 @@ def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
 
 
 def _execute_schema_statements(connection: sqlite3.Connection) -> None:
-    for statement in SCHEMA_V2.split(";"):
+    for statement in SCHEMA_V3.split(";"):
         if statement.strip():
             connection.execute(statement)
 
@@ -197,8 +343,8 @@ def inspect_schema(catalog_path: Path) -> dict[str, Any]:
         "version": version,
         "user_version": user_version,
         "application_id": application_id,
-        "recognized": version in {1, SCHEMA_VERSION},
-        "migration_required": version == 1,
+        "recognized": version in {1, 2, SCHEMA_VERSION},
+        "migration_required": version in {1, 2},
     }
 
 
@@ -215,7 +361,7 @@ def connect_current(catalog_path: Path, *, create: bool = False) -> sqlite3.Conn
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA foreign_keys=ON")
-    connection.executescript(SCHEMA_V2)
+    connection.executescript(SCHEMA_V3)
     connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     connection.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
@@ -228,7 +374,7 @@ def migration_plan(state_dir: Path) -> dict[str, Any]:
     return {
         "schema": schema,
         "target_version": SCHEMA_VERSION,
-        "action": "MIGRATE_V1_TO_V2" if schema.get("migration_required") else "NO_ACTION",
+        "action": f"MIGRATE_V{schema.get('version')}_TO_V{SCHEMA_VERSION}" if schema.get("migration_required") else "NO_ACTION",
         "backup_required": bool(schema.get("migration_required")),
         "rollback_supported": True,
         "physical_project_actions": 0,
@@ -251,13 +397,93 @@ def _consistent_catalog_backup(source: Path, target: Path) -> None:
         source_connection.close()
 
 
-def migrate_v1_to_v2(state_dir: Path, *, apply: bool = False) -> dict[str, Any]:
+def _add_v2_columns(connection: sqlite3.Connection) -> None:
+    file_columns = _columns(connection, "files")
+    for name, declaration in (
+        ("sample_fingerprint", "TEXT"),
+        ("full_sha256", "TEXT"),
+        ("fingerprint_stage", "INTEGER NOT NULL DEFAULT 0"),
+        ("volatile_class", "TEXT"),
+    ):
+        if name not in file_columns:
+            connection.execute(f"ALTER TABLE files ADD COLUMN {name} {declaration}")
+    project_columns = _columns(connection, "projects")
+    for name, declaration in (
+        ("root_path", "TEXT"),
+        ("purpose", "TEXT"),
+        ("lifecycle", "TEXT"),
+        ("confidence", "REAL"),
+        ("evidence_json", "TEXT"),
+        ("parent_project_id", "TEXT"),
+    ):
+        if name not in project_columns:
+            connection.execute(f"ALTER TABLE projects ADD COLUMN {name} {declaration}")
+
+
+def _add_v3_columns(connection: sqlite3.Connection) -> None:
+    file_columns = _columns(connection, "files")
+    for name, declaration in (
+        ("file_id", "TEXT"),
+        ("native_file_id", "TEXT"),
+        ("identity_confidence", "REAL"),
+        ("identity_evidence_json", "TEXT"),
+    ):
+        if name not in file_columns:
+            connection.execute(f"ALTER TABLE files ADD COLUMN {name} {declaration}")
+    asset_columns = _columns(connection, "assets") if "assets" in {
+        str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    } else set()
+    for name, declaration in (
+        ("asset_kind", "TEXT NOT NULL DEFAULT 'file'"),
+        ("entity_path", "TEXT"),
+        ("authority_scope", "TEXT NOT NULL DEFAULT 'FILE_LOCAL'"),
+        ("authority_context_id", "TEXT"),
+    ):
+        if asset_columns and name not in asset_columns:
+            connection.execute(f"ALTER TABLE assets ADD COLUMN {name} {declaration}")
+
+
+def _populate_file_cards(connection: sqlite3.Connection) -> None:
+    rows = [dict(row) for row in connection.execute(
+        "SELECT path_key,path,status,first_seen,last_seen,file_id,native_file_id,identity_confidence,identity_evidence_json FROM files"
+    )]
+    updates: list[tuple[str, float, str, str]] = []
+    cards: dict[str, tuple[Any, ...]] = {}
+    for row in rows:
+        file_id = row.get("file_id") or "file_" + hashlib.sha256(str(row["path_key"]).encode("utf-8")).hexdigest()[:24]
+        evidence = row.get("identity_evidence_json") or json.dumps(
+            [{"type": "migration", "detail": "Stable identity initialized from the existing canonical path key."}],
+            ensure_ascii=False,
+        )
+        confidence = float(row.get("identity_confidence") or 0.7)
+        updates.append((file_id, confidence, evidence, row["path_key"]))
+        candidate = (
+            file_id, row.get("native_file_id"), row["path_key"], row["first_seen"], row["last_seen"], row["status"],
+            confidence, evidence, None, None, None,
+        )
+        prior = cards.get(file_id)
+        if prior is None or (prior[5] != "present" and row["status"] == "present"):
+            cards[file_id] = candidate
+    connection.executemany(
+        "UPDATE files SET file_id=?,identity_confidence=?,identity_evidence_json=? WHERE path_key=?", updates
+    )
+    connection.executemany(
+        """INSERT OR REPLACE INTO file_cards(
+            file_id,native_file_id,current_path_key,first_seen,last_seen,status,identity_confidence,
+            identity_evidence_json,last_role,last_authority,authority_scope
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+        cards.values(),
+    )
+
+
+def migrate_to_current(state_dir: Path, *, apply: bool = False) -> dict[str, Any]:
     plan = migration_plan(state_dir)
     if not apply or plan["action"] == "NO_ACTION":
         return {**plan, "applied": False}
     catalog = state_dir / "catalog.db"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = state_dir / "migrations" / f"schema-v1-{stamp}"
+    source_version = int(plan["schema"].get("version") or 0)
+    backup = state_dir / "migrations" / f"schema-v{source_version}-{stamp}"
     backup.mkdir(parents=True, exist_ok=False)
     copied: list[dict[str, Any]] = []
     for name in ("catalog.db", "baseline.json", "last_changes.json"):
@@ -269,42 +495,27 @@ def migrate_v1_to_v2(state_dir: Path, *, apply: bool = False) -> dict[str, Any]:
             else:
                 shutil.copy2(source, target)
             copied.append({"name": name, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
-    migration_id = f"migration_v1_v2_{stamp}"
+    migration_id = f"migration_v{source_version}_v{SCHEMA_VERSION}_{stamp}"
     (backup / "backup_manifest.json").write_text(
         json.dumps({"migration_id": migration_id, "files": copied}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     connection = sqlite3.connect(catalog)
+    connection.row_factory = sqlite3.Row
     try:
         connection.execute("BEGIN IMMEDIATE")
-        file_columns = _columns(connection, "files")
-        for name, declaration in (
-            ("sample_fingerprint", "TEXT"),
-            ("full_sha256", "TEXT"),
-            ("fingerprint_stage", "INTEGER NOT NULL DEFAULT 0"),
-            ("volatile_class", "TEXT"),
-        ):
-            if name not in file_columns:
-                connection.execute(f"ALTER TABLE files ADD COLUMN {name} {declaration}")
-        project_columns = _columns(connection, "projects")
-        for name, declaration in (
-            ("root_path", "TEXT"),
-            ("purpose", "TEXT"),
-            ("lifecycle", "TEXT"),
-            ("confidence", "REAL"),
-            ("evidence_json", "TEXT"),
-            ("parent_project_id", "TEXT"),
-        ):
-            if name not in project_columns:
-                connection.execute(f"ALTER TABLE projects ADD COLUMN {name} {declaration}")
+        if source_version == 1:
+            _add_v2_columns(connection)
+        _add_v3_columns(connection)
         _execute_schema_statements(connection)
+        _populate_file_cards(connection)
         connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
         connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         connection.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
         connection.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('last_migration_backup',?)", (str(backup),))
         connection.execute(
             "INSERT INTO migrations(migration_id,from_version,to_version,applied_at,backup_path,status) VALUES(?,?,?,?,?,?)",
-            (migration_id, 1, 2, datetime.now(timezone.utc).isoformat(timespec="seconds"), str(backup), "APPLIED"),
+            (migration_id, source_version, SCHEMA_VERSION, datetime.now(timezone.utc).isoformat(timespec="seconds"), str(backup), "APPLIED"),
         )
         connection.commit()
     except Exception:
@@ -316,12 +527,17 @@ def migrate_v1_to_v2(state_dir: Path, *, apply: bool = False) -> dict[str, Any]:
     if baseline_path.is_file():
         baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
         baseline["schema_version"] = SCHEMA_VERSION
-        baseline["migration"] = {"id": migration_id, "from": 1, "to": 2, "backup_path": str(backup)}
+        baseline["migration"] = {"id": migration_id, "from": source_version, "to": SCHEMA_VERSION, "backup_path": str(backup)}
         baseline["digest"] = _digest(baseline)
         temporary = baseline_path.with_suffix(".json.migration.tmp")
         temporary.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary, baseline_path)
     return {**plan, "applied": True, "migration_id": migration_id, "backup_path": str(backup), "backup_files": copied}
+
+
+def migrate_v1_to_v2(state_dir: Path, *, apply: bool = False) -> dict[str, Any]:
+    """Backward-compatible entry point; all recognized legacy catalogs migrate to the current schema."""
+    return migrate_to_current(state_dir, apply=apply)
 
 
 def rollback_migration(state_dir: Path, backup_path: Path, *, apply: bool = False) -> dict[str, Any]:
@@ -338,10 +554,30 @@ def rollback_migration(state_dir: Path, backup_path: Path, *, apply: bool = Fals
         raise ValueError("Migration backup integrity check failed.")
     if not apply:
         return {"action": "ROLLBACK", "applied": False, "checks": checks, "physical_project_actions": 0}
+    catalog = state_dir / "catalog.db"
+    if catalog.is_file():
+        checkpoint = sqlite3.connect(catalog)
+        try:
+            checkpoint.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            checkpoint.close()
+    sidecar_archive = backup_path / "rollback_superseded_sidecars"
+    moved_sidecars: list[str] = []
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(str(catalog) + suffix)
+        if not sidecar.exists():
+            continue
+        sidecar_archive.mkdir(parents=True, exist_ok=True)
+        target = sidecar_archive / sidecar.name
+        os.replace(sidecar, target)
+        moved_sidecars.append(str(target))
     for item in payload.get("files", []):
         source = backup_path / item["name"]
         target = state_dir / item["name"]
         temporary = target.with_suffix(target.suffix + ".rollback.tmp")
         shutil.copy2(source, temporary)
         os.replace(temporary, target)
-    return {"action": "ROLLBACK", "applied": True, "checks": checks, "physical_project_actions": 0}
+    return {
+        "action": "ROLLBACK", "applied": True, "checks": checks,
+        "superseded_sidecars_preserved": moved_sidecars, "physical_project_actions": 0,
+    }

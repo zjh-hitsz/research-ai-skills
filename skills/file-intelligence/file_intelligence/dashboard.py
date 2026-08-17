@@ -33,15 +33,18 @@ def build_dashboard(connection: sqlite3.Connection, state_dir: Path, *, last_sum
     ).fetchone()
     machine = (int(indexed[0]) + int(aggregated[0]), int(indexed[1]) + int(aggregated[1]))
     projects = [dict(row) for row in connection.execute(
-        "SELECT * FROM projects WHERE status='understood' AND root_path IS NOT NULL ORDER BY lifecycle,name COLLATE NOCASE"
+        """SELECT p.*,COALESCE(pa.activity_status,'UNKNOWN') AS activity_status,pa.last_meaningful_activity
+           FROM projects p LEFT JOIN project_activity pa ON pa.project_id=p.project_id
+           WHERE p.status='understood' AND p.root_path IS NOT NULL ORDER BY p.lifecycle,p.name COLLATE NOCASE"""
     )]
     lifecycle_counts = Counter((project.get("lifecycle") or "UNKNOWN") for project in projects)
     cards: list[str] = []
     for project in projects:
         authorities = [dict(row) for row in connection.execute(
-            """SELECT f.path,a.role,a.authority_level,a.confidence FROM assets a
-               JOIN files f ON f.path_key=a.path_key WHERE a.project_id=?
+            """SELECT COALESCE(f.path,a.entity_path) AS path,a.role,a.authority_level,a.authority_scope,a.confidence FROM assets a
+               LEFT JOIN files f ON f.path_key=a.path_key WHERE a.project_id=?
                AND a.authority_level IN ('PRIMARY','CANONICAL','ACTIVE')
+               AND a.authority_scope IN ('PROJECT_WIDE','FILE_LOCAL')
                ORDER BY a.confidence DESC LIMIT 8""",
             (project["project_id"],),
         )]
@@ -63,9 +66,12 @@ def build_dashboard(connection: sqlite3.Connection, state_dir: Path, *, last_sum
             (project["project_id"],),
         )]
         aggregate_assets = [dict(row) for row in connection.execute(
-            """SELECT path,total_size AS size,kind AS role,'AGGREGATE' AS authority_level
+            """SELECT path,total_size AS size,file_count,kind AS role,'AGGREGATE' AS authority_level
                FROM aggregate_nodes WHERE project_id=? ORDER BY total_size DESC LIMIT 4""",
             (project["project_id"],),
+        )]
+        tools = [dict(row) for row in connection.execute(
+            "SELECT tool_name,centrality,score FROM project_tools WHERE project_id=? ORDER BY score DESC", (project["project_id"],)
         )]
         workstream_html = "".join(
             f"<li><span>{_escape(item['name'])}</span><b>{_escape(item['lifecycle'] or 'UNKNOWN')}</b> <small>{float(item['confidence']):.0%}</small></li>"
@@ -77,25 +83,43 @@ def build_dashboard(connection: sqlite3.Connection, state_dir: Path, *, last_sum
         ) or "<li>No authority established yet</li>"
         large_html = "".join(
             f"<li title='{_escape(item['path'])}'><span>{_escape(Path(item['path']).name)}</span>"
-            f"<b>{_human_size(int(item['size']))}</b> <small>{_escape(item.get('role') or 'unknown')}</small></li>"
+            f"<b>{_human_size(int(item['size']))}</b> <small>{_escape(item.get('role') or 'unknown')}"
+            f"{(' · ' + format(int(item['file_count']), ',') + ' members') if item.get('file_count') is not None else ''}</small></li>"
             for item in (large_assets + aggregate_assets)[:8]
         ) or "<li>No large-asset summary yet</li>"
+        tool_html = " · ".join(f"{_escape(item['tool_name'])} <b>{_escape(item['centrality'])}</b>" for item in tools[:5]) or "Tool centrality not established"
         cards.append(
             "<article class='project'>"
             f"<header><div><h2>{_escape(project['name'])}</h2><p>{_escape(project.get('purpose'))}</p></div>"
-            f"<span class='badge'>{_escape(project.get('lifecycle') or 'UNKNOWN')}</span></header>"
+            f"<span class='badge'>{_escape(project.get('activity_status') or 'UNKNOWN')}</span></header>"
             f"<div class='metrics'><span>{project['file_count']:,} files</span><span>{_human_size(project['total_size'])}</span>"
-            f"<span>{dependencies:,} references</span><span>{int(archive[0]):,} review candidates / {_human_size(int(archive[1]))}</span></div>"
+            f"<span>{dependencies:,} references</span><span>{int(archive[0]):,} review candidates / {_human_size(int(archive[1]))}</span>"
+            f"<span>{tool_html}</span></div>"
             f"<div class='columns'><section><h3>Workstreams</h3><ul>{workstream_html}</ul></section>"
             f"<section><h3>Authority</h3><ul>{authority_html}</ul></section>"
             f"<section><h3>Large assets &amp; aggregates</h3><ul>{large_html}</ul></section></div></article>"
         )
     recent = last_summary or {}
-    meaningful = recent.get("meaningful_changes", recent.get("counts", {}).get("changed", 0))
+    meaningful = recent.get("meaningful_changes", recent.get("semantic_summary", {}).get("meaningful_event_count", 0))
     volatile = recent.get("volatile_changes", 0)
+    snapshots = [dict(row) for row in connection.execute("SELECT * FROM snapshots ORDER BY created_at DESC,rowid DESC LIMIT 2")]
+    latest_snapshot = snapshots[0] if snapshots else {}
+    storage_delta = int(latest_snapshot.get("logical_size") or machine[1]) - int(snapshots[1].get("logical_size") or machine[1]) if len(snapshots) > 1 else 0
+    alerts = int(connection.execute("SELECT COUNT(*) FROM asset_alerts WHERE status='OPEN'").fetchone()[0])
+    active_projects = sum(1 for project in projects if project.get("activity_status") == "ACTIVE")
+    recent_events = [dict(row) for row in connection.execute(
+        """SELECT e.*,COALESCE(p.name,'System / unassigned') AS project_name FROM events e
+           LEFT JOIN projects p ON p.project_id=e.project_id
+           WHERE e.semantic_importance NOT IN ('LOW','VOLATILE') ORDER BY e.occurred_at DESC,e.importance_score DESC LIMIT 12"""
+    )]
+    recent_html = "".join(
+        f"<article class='change'><div><small>{_escape(item['occurred_at'])}</small><h3>{_escape(item['project_name'])}</h3>"
+        f"<p>{_escape(item['event_type'])} · {_escape(item.get('path_after') or item.get('path_before') or '')}</p></div>"
+        f"<b>{_escape(item['semantic_importance'])}</b></article>" for item in recent_events
+    ) or "<p class='empty'>No meaningful historical change has been recorded yet.</p>"
     body = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>File Intelligence Home</title>
+<title>Computer Intelligence</title>
 <style>
 :root{{--ink:#172033;--muted:#687386;--line:#dfe5ec;--paper:#f5f7fa;--accent:#2859d6;--good:#19714d}}
 *{{box-sizing:border-box}} body{{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 Segoe UI,Arial,sans-serif}}
@@ -108,16 +132,24 @@ main{{max-width:1240px;margin:auto;padding:36px 24px 72px}} h1{{font-size:32px;m
 .metrics{{display:flex;flex-wrap:wrap;gap:14px;margin:15px 0;padding:10px 0;border-block:1px solid var(--line)}}
 .columns{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px}} ul{{list-style:none;padding:0;margin:0}} li{{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;padding:5px 0;border-bottom:1px dotted var(--line)}} li span{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .notice{{border-left:4px solid var(--good);padding:10px 14px;background:#edf8f3;margin:20px 0}} @media(max-width:700px){{.columns{{grid-template-columns:1fr}}}}
+.change{{display:flex;justify-content:space-between;gap:20px;background:white;border:1px solid var(--line);border-radius:12px;padding:13px 16px;margin:8px 0}} .change h3,.change p{{margin:2px 0}} .timeline-link{{float:right;color:var(--accent);font-weight:700;text-decoration:none}}
 </style></head><body><main>
-<h1>File Intelligence Home</h1><p class="lead">Private, local, read-only project intelligence. Recommendations never execute file operations.</p>
+<a class="timeline-link" href="Computer Timeline.html">Open Computer Timeline →</a><h1>Computer Intelligence</h1><p class="lead">Private, local, read-only memory of current files, projects, storage and historical change.</p>
 <section class="overview">
 <div class="stat"><b>{int(machine[0]):,}</b><span>present files</span></div>
 <div class="stat"><b>{_human_size(int(machine[1]))}</b><span>catalogued size</span></div>
 <div class="stat"><b>{len(projects):,}</b><span>understood projects</span></div>
-<div class="stat"><b>{lifecycle_counts.get('ACTIVE',0):,}</b><span>active</span></div>
-<div class="stat"><b>{lifecycle_counts.get('FROZEN',0)+lifecycle_counts.get('COMPLETED',0):,}</b><span>frozen / completed</span></div>
+<div class="stat"><b>{active_projects:,}</b><span>active projects</span></div>
+<div class="stat"><b>{_human_size(storage_delta)}</b><span>since last snapshot</span></div>
+<div class="stat"><b>{int(meaningful):,}</b><span>meaningful changes</span></div>
+<div class="stat"><b>{alerts:,}</b><span>important alerts</span></div>
+<div class="stat"><b>{_human_size(int(latest_snapshot.get('potential_cleanup') or 0))}</b><span>potential cleanup</span></div>
+<div class="stat"><b>{_human_size(int(latest_snapshot.get('potential_archive') or 0))}</b><span>potential archive</span></div>
+<div class="stat"><b>{_human_size(int(latest_snapshot.get('disk_used') or 0))} / {_human_size(int(latest_snapshot.get('disk_total') or 0))}</b><span>disk used / total</span></div>
 </section>
 <div class="notice"><b>Latest semantic status:</b> {_escape(recent.get('semantic_status','BASELINE'))} · meaningful {int(meaningful):,} · volatile {int(volatile):,}</div>
+<h2>Recent meaningful changes</h2>{recent_html}
+<h2>Projects</h2>
 {''.join(cards) if cards else '<article class="project"><h2>Project Understanding not run yet</h2><p>Catalog is ready; run a targeted read-only project analysis.</p></article>'}
 </main></body></html>"""
     state_dir.mkdir(parents=True, exist_ok=True)

@@ -81,7 +81,7 @@ class MigrationAndSafetyTests(unittest.TestCase):
 
             applied = migrate_state(state_dir=state, apply=True)
             self.assertTrue(applied["applied"])
-            self.assertEqual(inspect_schema(state / "catalog.db")["version"], 2)
+            self.assertEqual(inspect_schema(state / "catalog.db")["version"], 3)
             backup_catalog = Path(applied["backup_path"]) / "catalog.db"
             self.assertTrue((Path(applied["backup_path"]) / "backup_manifest.json").is_file())
             with closing(sqlite3.connect(backup_catalog)) as backup_connection:

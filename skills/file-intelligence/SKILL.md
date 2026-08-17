@@ -1,6 +1,6 @@
 ---
 name: file-intelligence
-description: Build and maintain a private, read-only Windows file and project knowledge base. Use when Codex must onboard a machine or folder; use Everything/ES or filesystem discovery; infer hierarchical projects and workstreams; explain asset roles, authority, provenance, dependencies, duplicates, move/copy events, large-file fingerprints, aggregate environments, or meaningful versus volatile changes; manage explicit local user assertions; generate the File Intelligence Home dashboard; or migrate an existing v1 state safely without moving, deleting, renaming, archiving, or uploading user files.
+description: Build and maintain a private, read-only Windows file, project, and change-history knowledge base. Use when Codex must onboard or incrementally maintain a machine/folder; answer what changed since the last scan or over a date range; explain project/workstream activity, storage growth, missing important assets, stable file identity, move/rename/copy evidence, authority scope, tool centrality, dependencies, duplicates, or volatile noise; create lightweight snapshots and Computer Timeline context; manage local assertions or explicit schema migration without moving, deleting, renaming, archiving, or uploading user files.
 ---
 
 # File Intelligence
@@ -11,7 +11,7 @@ Keep reusable Skill code and private machine knowledge separate. Store catalogs,
 
 1. Run `python scripts/file_intelligence_cli.py status`.
 2. If status is `DEEP_ONBOARDING_REQUIRED`, obtain explicit roots and run onboarding once.
-3. If status is `MIGRATION_REQUIRED`, preview `migrate`; apply it only as an explicit, reviewed state operation. Migration first creates a hash-recorded backup and never touches scanned project files.
+3. If status is `MIGRATION_REQUIRED`, preview `migrate`; apply it only as an explicit, reviewed state operation. Migration first creates a WAL-consistent, hash-recorded backup and never touches scanned project files.
 4. If status is `MAINTENANCE_READY`, default to incremental `maintain`. Do not rebuild the baseline without an explicit `--rebuild` request.
 5. For a project question, run targeted `understand --project-root <folder>`, then use `asset --path <file>` for evidence-backed asset explanations.
 
@@ -45,12 +45,32 @@ The default lightweight inspectors parse bounded text, Office Open XML, archive 
 
 ```powershell
 python scripts/file_intelligence_cli.py maintain
+python scripts/file_intelligence_cli.py maintain --deep --snapshot-kind weekly
 python scripts/file_intelligence_cli.py changes
 ```
 
 Report raw filesystem changes separately from meaningful project changes. Classify explainable WAL, lock, log, browser, communication-runtime, Codex-session, and cloud-metadata churn as volatile evidence instead of hiding it. Reuse unchanged fingerprints and perform zero content inspections on a no-op run.
 
 Interpret same-size Stage-1 fingerprint matches as high-confidence identity evidence, not exact equality. Require Stage-2 full SHA-256 for exact duplicate claims. Maintenance may report `NEW`, `CHANGED`, `MISSING`, `REAPPEARED`, `MOVED`, `RENAMED`, and `COPIED`; it never executes those operations.
+
+Persist Maintenance evidence in the append-oriented Event Store. Keep stable `file_id` identity separate from path observations. Prefer native device/file-index evidence when available, then full SHA-256, then size plus Stage-1 fingerprint. Emit `POSSIBLE_MOVE` instead of asserting identity when evidence is weak.
+
+Collapse volatile runtime churn and aggregate cache/environment trees before semantic ranking. Score changes transparently from authority, role, size, dependency centrality, rebuildability, path context, and explicit assertions. Create an important-asset alert only after checking relocation, surviving copies, archive context, and supersession.
+
+## Timeline and snapshots
+
+```powershell
+python scripts/file_intelligence_cli.py timeline --since-last-scan
+python scripts/file_intelligence_cli.py context-summary --days 7 --project <name-or-id>
+python scripts/file_intelligence_cli.py project-history <name-or-id>
+python scripts/file_intelligence_cli.py file-history <path-or-file-id>
+python scripts/file_intelligence_cli.py storage-growth --days 7
+python scripts/file_intelligence_cli.py snapshot --kind manual
+```
+
+Return structured facts for Codex to narrate: time range, important changes, project/workstream changes, storage deltas, asset alerts, and uncertainty. Keep raw diff counts available but do not dump thousands of low-value paths into the semantic summary.
+
+Snapshots are materialized summaries, not database or user-file copies. Daily Maintenance records a daily snapshot; `--deep` refreshes only affected understood projects with bounded inspectors and records a weekly snapshot when selected. Read `references/architecture.md` before changing retention, scheduler, identity, or event semantics.
 
 ## User assertions
 
@@ -69,9 +89,11 @@ python scripts/file_intelligence_cli.py dashboard
 python scripts/file_intelligence_cli.py migrate
 python scripts/file_intelligence_cli.py migrate --apply
 python scripts/file_intelligence_cli.py rollback --backup <migration-backup>
+python scripts/file_intelligence_cli.py retention
+python scripts/file_intelligence_cli.py schedule-plan
 ```
 
-`File Intelligence Home.html` summarizes projects, workstreams, authorities, dependencies, archive-review candidates, and recent meaningful changes without dumping the full catalog.
+`File Intelligence Home.html` is the computer-status home; `Computer Timeline.html` is the filterable local event view. `retention` is preview-only unless `--apply` is explicit, and never removes high-importance or authority history. `schedule-plan` installs nothing; use the bundled runner only after the user chooses a schedule.
 
 ## Packaging boundary
 

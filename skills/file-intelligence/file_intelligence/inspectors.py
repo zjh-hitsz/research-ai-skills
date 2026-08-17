@@ -26,6 +26,7 @@ FILE_URI_RE = re.compile(r"file:///[A-Za-z]:/[^\s\"'<>]+", re.I)
 QUOTED_PATH_RE = re.compile(r"[\"']([^\"'\r\n]{1,600}\.[A-Za-z0-9.]{1,12})[\"']")
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\r\n]{1,600})\)")
 BACKTICK_PATH_RE = re.compile(r"`([^`\r\n]{1,600}\.[A-Za-z0-9.]{1,12})`")
+BACKTICK_DIRECTORY_RE = re.compile(r"`([^`\r\n]{1,600}[\\/])`")
 AUTHORITY_LINE_RE = re.compile(
     r"(?i)(canonical|authority|authoritative|source\s+of\s+truth|final\s+(?:model|manuscript|ppt|presentation)|"
     r"official\s+(?:model|document|presentation)|权威|正式(?:模型|稿件|报告|数据|文件|PPT|演示)|最终|基准模型|源模型).{0,240}"
@@ -170,6 +171,7 @@ def _candidate_reference_strings(text: str) -> Iterable[tuple[str, int]]:
         candidates.extend(match.group(1) for match in QUOTED_PATH_RE.finditer(line))
         candidates.extend(match.group(1) for match in MARKDOWN_LINK_RE.finditer(line))
         candidates.extend(match.group(1) for match in BACKTICK_PATH_RE.finditer(line))
+        candidates.extend(match.group(1) for match in BACKTICK_DIRECTORY_RE.finditer(line))
         for value in candidates:
             value = value.strip().strip("` \t,;:)")
             marker = (value, line_no)
@@ -183,9 +185,6 @@ def _path_from_reference(value: str, source: Path, project_root: Path) -> tuple[
     if parsed.scheme.casefold() == "file":
         value = unquote(parsed.path).lstrip("/")
     value = value.replace("/", "\\") if re.match(r"^[A-Za-z]:", value) else value
-    suffix = Path(value.split("#", 1)[0].split("?", 1)[0]).suffix.casefold()
-    if suffix and suffix not in REFERENCE_EXTENSIONS and not any(value.casefold().endswith(ext) for ext in REFERENCE_EXTENSIONS):
-        return None, "not_file_like"
     candidate = Path(value)
     if candidate.is_absolute():
         resolved = candidate
@@ -197,6 +196,11 @@ def _path_from_reference(value: str, source: Path, project_root: Path) -> tuple[
         normalized = resolved.resolve(strict=False)
     except OSError:
         normalized = resolved.absolute()
+    if normalized.exists() and normalized.is_dir():
+        return str(normalized), "resolved_existing"
+    suffix = Path(value.split("#", 1)[0].split("?", 1)[0]).suffix.casefold()
+    if suffix and suffix not in REFERENCE_EXTENSIONS and not any(value.casefold().endswith(ext) for ext in REFERENCE_EXTENSIONS):
+        return None, "not_file_like"
     return str(normalized), "resolved_existing" if normalized.exists() else "resolved_missing"
 
 

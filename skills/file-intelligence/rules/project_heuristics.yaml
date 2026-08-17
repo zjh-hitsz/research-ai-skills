@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "excluded_directory_names": [
     ".git",
     "$recycle.bin", "system volume information"
@@ -13,5 +13,8 @@
     "build", "dist", "cache", ".cache", "render", "renders", "preview", "previews", "tmp", "temp"
   ],
   "hierarchy": ["Project", "Workstream", "Asset Group", "Deliverable", "Archive"],
+  "authority_scopes": ["PROJECT_WIDE", "WORKSTREAM_LOCAL", "GATE_LOCAL", "FILE_LOCAL"],
+  "tool_centrality": ["PRIMARY_TOOL", "SECONDARY_TOOL", "REFERENCE_TOOL"],
+  "activity_states": ["ACTIVE", "LOW_ACTIVITY", "DORMANT", "FROZEN", "COMPLETED", "UNKNOWN"],
   "policy": "Use first-level directories only as initial candidates. Merge them under an explicit targeted project root, then infer workstreams from structure, project metadata, content, references, lifecycle evidence, and local user assertions."
 }

@@ -14,6 +14,7 @@ from .classification import infer_asset_role
 from .fingerprints import full_sha256, staged_sample_fingerprint
 from .inspectors import inspect_file
 from .paths import path_key
+from .timeline import append_event
 
 
 DOMAIN_TERMS = {
@@ -58,6 +59,8 @@ FILENAME_TOKEN_RE = re.compile(
     re.I,
 )
 SUPERSESSION_RE = re.compile(r"(?i)superseded\s+by|replaced\s+by|replaces?|取代|替代")
+GATE_SCOPE_TOKENS = {"gate", "checkpoint", "iteration", "iter", "phase", "stage", "validation", "verify", "audit", "交付门", "检查点"}
+IMPORTANT_AUTHORITIES = {"PRIMARY", "CANONICAL", "ACTIVE"}
 
 
 def _now() -> str:
@@ -307,6 +310,105 @@ def _purpose(project_name: str, texts: list[tuple[str, str]], project_root: Path
     return summary, evidence, round(confidence, 3)
 
 
+def _tool_centrality(
+    records: list[dict[str, Any]], texts: list[tuple[str, str]], project_root: Path,
+) -> list[dict[str, Any]]:
+    definitions = {
+        "Fluent": {"extensions": {".cas", ".cas.h5", ".dat", ".dat.h5", ".msh", ".msh.h5"}, "terms": ("fluent", "ansys fluent")},
+        "COMSOL": {"extensions": {".mph"}, "terms": ("comsol",)},
+        "SpaceClaim": {"extensions": {".scdoc", ".scdocx"}, "terms": ("spaceclaim",)},
+        "Python": {"extensions": {".py", ".ipynb"}, "terms": ("python",)},
+        "MATLAB": {"extensions": {".m", ".mat"}, "terms": ("matlab",)},
+    }
+    scored: list[dict[str, Any]] = []
+    reference_tokens = {"reference", "references", "literature", "papers", "evidence", "supporting", "background", "参考", "文献"}
+    for tool, definition in definitions.items():
+        native = [row for row in records if row["extension"].casefold() in definition["extensions"]]
+        primary_native = [
+            row for row in native
+            if not ({token for part in _relative_parts(Path(row["path"]), project_root) for token in re.split(r"[^a-z0-9\u4e00-\u9fff]+", part.casefold()) if token} & reference_tokens)
+        ]
+        reference_native = [row for row in native if row not in primary_native]
+        score = min(40.0, len(primary_native) * 4.0 + len(reference_native) * 0.5 + sum(min(12.0, int(row["size"]) / (512 * 1024**2)) for row in primary_native))
+        evidence: list[dict[str, Any]] = []
+        if native:
+            evidence.append(_evidence(
+                "structural_inference",
+                f"{len(primary_native)} primary-context and {len(reference_native)} reference-context native {tool} asset(s) are catalogued.",
+            ))
+        primary_mentions = 0
+        supporting_mentions = 0
+        reference_mentions = 0
+        for source, text in texts:
+            parts = {
+                token for part in _relative_parts(Path(source), project_root)
+                for token in re.split(r"[^a-z0-9\u4e00-\u9fff]+", part.casefold()) if token
+            }
+            source_reference = bool(parts & reference_tokens)
+            for line in text.splitlines():
+                lowered = line.casefold()
+                mentions = sum(lowered.count(term) for term in definition["terms"])
+                if not mentions:
+                    continue
+                reference_context = source_reference or bool(re.search(
+                    r"(?i)reference|supporting|background|golden|example|comparison|not\s+(?:the\s+)?(?:main|primary)|reference\s+only|参考|文献|辅助|仅为",
+                    line,
+                ))
+                primary_context = bool(re.search(
+                    rf"(?i)(primary|main|production|authoritative|主要求解|主链).{{0,40}}{re.escape(tool)}|{re.escape(tool)}.{{0,40}}(primary|main|production|authoritative|主要求解|主链)",
+                    line,
+                ))
+                if reference_context:
+                    reference_mentions += mentions
+                elif primary_context:
+                    primary_mentions += mentions
+                else:
+                    supporting_mentions += mentions
+        score += min(35.0, primary_mentions * 8.0) + min(12.0, supporting_mentions * 0.5) + min(3.0, reference_mentions * 0.1)
+        if primary_mentions:
+            evidence.append(_evidence("explicit_project_metadata", f"Primary-tool language appears {primary_mentions} time(s)."))
+        if supporting_mentions:
+            evidence.append(_evidence("document_evidence", f"Non-reference project documents mention {tool} {supporting_mentions} time(s)."))
+        if reference_mentions:
+            evidence.append(_evidence("document_evidence", f"Reference/supporting evidence mentions {tool} {reference_mentions} time(s)."))
+        if score > 0:
+            scored.append({
+                "tool_name": tool, "score": round(score, 3), "evidence": evidence,
+                "native_assets": len(native), "primary_native_assets": len(primary_native),
+                "reference_native_assets": len(reference_native), "primary_mentions": primary_mentions,
+                "reference_mentions": reference_mentions,
+            })
+    if not scored:
+        return []
+    scored.sort(key=lambda item: (-item["score"], item["tool_name"]))
+    top_score = scored[0]["score"]
+    for index, item in enumerate(scored):
+        if index == 0 and (item["native_assets"] or item["score"] >= 8):
+            item["centrality"] = "PRIMARY_TOOL"
+        elif (
+            item["primary_native_assets"]
+            or item["primary_mentions"] >= max(2, item["reference_mentions"] * 0.25)
+        ) and item["score"] >= max(6.0, top_score * 0.35):
+            item["centrality"] = "SECONDARY_TOOL"
+        else:
+            item["centrality"] = "REFERENCE_TOOL"
+    return scored
+
+
+def _authority_scope(
+    asset_path: Path, project_root: Path, workstream_id: str | None, *, source_path: Path | None = None,
+) -> tuple[str, str | None]:
+    parts = {token for part in _relative_parts(asset_path, project_root) for token in re.split(r"[^a-z0-9\u4e00-\u9fff]+", part.casefold()) if token}
+    if parts & GATE_SCOPE_TOKENS:
+        gate = next(iter(sorted(parts & GATE_SCOPE_TOKENS)), "gate")
+        return "GATE_LOCAL", _id("gate", _key(project_root), gate)
+    if workstream_id:
+        return "WORKSTREAM_LOCAL", workstream_id
+    if source_path and len(_relative_parts(source_path, project_root)) == 1:
+        return "PROJECT_WIDE", _id("node", _id("project", _key(project_root)), "project")
+    return "FILE_LOCAL", None
+
+
 def _family_key(row: dict[str, Any]) -> str:
     stem = Path(row["filename"]).stem.casefold()
     stem = HIGH_AUTHORITY_WORDS.sub("", stem)
@@ -342,7 +444,7 @@ def _apply_assertions(
         value = json.loads(assertion["value_json"])
         if assertion["subject_type"] == "asset" and assertion["subject_key"] in assets:
             asset = assets[assertion["subject_key"]]
-            if assertion["predicate"] in {"role", "authority_level", "archive_recommendation", "rebuildability", "workstream_id"}:
+            if assertion["predicate"] in {"role", "authority_level", "authority_scope", "archive_recommendation", "rebuildability", "workstream_id"}:
                 asset[assertion["predicate"]] = value
                 asset["confidence"] = 1.0
                 asset["provenance_type"] = "explicit_user"
@@ -362,6 +464,7 @@ def understand_project(
     max_stage1_hashes: int = 1200,
     max_full_hashes: int = 32,
     content_exclude_patterns: Iterable[str] = (),
+    commit: bool = True,
 ) -> dict[str, Any]:
     """Build a deterministic, evidence-carrying Project Understanding graph."""
     root = project_root.resolve()
@@ -372,6 +475,16 @@ def understand_project(
         raise ValueError(f"No catalog records exist below project root: {root}")
     project_name = root.name
     project_id = _id("project", root_key)
+    previous_project = connection.execute("SELECT * FROM projects WHERE project_id=? AND status='understood'", (project_id,)).fetchone()
+    previous_assets = {row["path_key"]: dict(row) for row in connection.execute("SELECT * FROM assets WHERE project_id=?", (project_id,))}
+    previous_dependencies = {row["edge_id"]: dict(row) for row in connection.execute("SELECT * FROM dependencies WHERE project_id=?", (project_id,))}
+    previous_workstreams = {
+        row["node_id"]: dict(row)
+        for row in connection.execute("SELECT * FROM project_nodes WHERE project_id=? AND node_type='workstream'", (project_id,))
+    }
+    previous_duplicate_count = int(connection.execute(
+        "SELECT COUNT(*) FROM identity_events WHERE run_id=? AND event_type='DUPLICATE'", (f"understand:{project_id}",)
+    ).fetchone()[0])
     aggregate_records = [
         dict(row)
         for row in connection.execute("SELECT * FROM aggregate_nodes ORDER BY path")
@@ -395,6 +508,7 @@ def understand_project(
             declarations.append((row, declaration))
     workstreams = _workstreams(records, root, project_name, document_texts)
     purpose, purpose_evidence, purpose_confidence = _purpose(project_name, document_texts, root)
+    tool_roles = _tool_centrality(records, document_texts, root)
     lifecycle, lifecycle_evidence = _project_lifecycle(workstreams, document_texts, root)
     project = {
         "project_id": project_id,
@@ -414,11 +528,13 @@ def understand_project(
     for row in records:
         text = inspections.get(row["path_key"], {}).get("text", "")
         inference = infer_asset_role(row["relative_path"], row["extension"], text)
+        workstream_id = _workstream_for(Path(row["path"]), workstreams)
+        authority_scope, authority_context = _authority_scope(Path(row["path"]), root, workstream_id)
         assets[row["path_key"]] = {
             "path_key": row["path_key"],
             "path": row["path"],
             "project_id": project_id,
-            "workstream_id": _workstream_for(Path(row["path"]), workstreams),
+            "workstream_id": workstream_id,
             "role": inference["role"],
             "authority_level": inference["authority_level"],
             "confidence": inference["confidence"],
@@ -427,8 +543,19 @@ def understand_project(
             "rebuildability": "likely" if inference["role"] in {"temporary", "cache", "intermediate", "derived"} else "unknown",
             "archive_recommendation": "NO_RECOMMENDATION",
             "superseded_by_path_key": None,
+            "asset_kind": "file",
+            "entity_path": row["path"],
+            "authority_scope": authority_scope,
+            "authority_context_id": authority_context,
         }
     path_lookup = {_key(row["path"]): row["path_key"] for row in records}
+    directory_lookup: dict[str, str] = {}
+    for row in records:
+        current = Path(row["path"]).parent
+        while current != root and _key(current).startswith(root_key.rstrip("\\/") + "\\"):
+            directory_lookup[_key(current)] = str(current)
+            current = current.parent
+    path_lookup.update({key: key for key in directory_lookup})
     filename_lookup: dict[str, list[str]] = defaultdict(list)
     record_lookup = {row["path_key"]: row for row in records}
     for row in records:
@@ -442,6 +569,19 @@ def understand_project(
                 if len(keys) == 1:
                     targets.extend(keys)
         for target_key in {target for target in targets if target}:
+            if target_key not in assets and target_key in directory_lookup:
+                directory_path = Path(directory_lookup[target_key])
+                workstream_id = _workstream_for(directory_path, workstreams)
+                authority_scope, authority_context = _authority_scope(directory_path, root, workstream_id, source_path=Path(source["path"]))
+                assets[target_key] = {
+                    "path_key": target_key, "path": str(directory_path), "project_id": project_id,
+                    "workstream_id": workstream_id, "role": "asset_group", "authority_level": "UNKNOWN",
+                    "confidence": 0.5, "evidence": [_evidence("structural_inference", "Directory authority entity created from an explicit declaration.")],
+                    "provenance_type": "structural_inference", "rebuildability": "unknown",
+                    "archive_recommendation": "NO_RECOMMENDATION", "superseded_by_path_key": None,
+                    "asset_kind": "directory", "entity_path": str(directory_path),
+                    "authority_scope": authority_scope, "authority_context_id": authority_context,
+                }
             asset = assets[target_key]
             asset["authority_level"] = "CANONICAL"
             if asset["role"] == "working_model":
@@ -452,6 +592,9 @@ def understand_project(
                 _evidence("explicit_project_metadata", declaration["excerpt"], source["path"])
             )
             asset["archive_recommendation"] = "KEEP_AUTHORITY"
+            asset["authority_scope"], asset["authority_context_id"] = _authority_scope(
+                Path(asset["path"]), root, asset.get("workstream_id"), source_path=Path(source["path"]),
+            )
             dependency_rows.append(
                 {
                     "source": source,
@@ -661,12 +804,20 @@ def understand_project(
             """INSERT INTO assets(
                 path_key,project_id,workstream_id,role,authority_level,confidence,evidence_json,provenance_type,
                 rebuildability,archive_recommendation,superseded_by_path_key,updated_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ,asset_kind,entity_path,authority_scope,authority_context_id
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 asset["path_key"], project_id, asset["workstream_id"], asset["role"], asset["authority_level"],
                 asset["confidence"], json.dumps(asset["evidence"], ensure_ascii=False), asset["provenance_type"],
                 asset["rebuildability"], asset["archive_recommendation"], asset["superseded_by_path_key"], stamp,
+                asset["asset_kind"], asset["entity_path"], asset["authority_scope"], asset["authority_context_id"],
             ),
+        )
+    connection.execute("DELETE FROM project_tools WHERE project_id=?", (project_id,))
+    for tool in tool_roles:
+        connection.execute(
+            "INSERT INTO project_tools(project_id,tool_name,centrality,score,evidence_json,updated_at) VALUES(?,?,?,?,?,?)",
+            (project_id, tool["tool_name"], tool["centrality"], tool["score"], json.dumps(tool["evidence"], ensure_ascii=False), stamp),
         )
     connection.execute("DELETE FROM identity_events WHERE run_id=?", (f"understand:{project_id}",))
     for event in duplicates:
@@ -759,24 +910,116 @@ def understand_project(
                 None, None, 0.7, json.dumps([_evidence("structural_inference", "Recommendations require human review; no file action is enabled.")]),
             ),
         )
-    connection.commit()
-    authorities = sorted(
+    activity_status = lifecycle if lifecycle in {"FROZEN", "COMPLETED"} else ("ACTIVE" if lifecycle == "ACTIVE" else "UNKNOWN")
+    connection.execute(
+        """INSERT INTO project_activity(project_id,activity_status,last_meaningful_activity,activity_score,evidence_json,updated_at)
+           VALUES(?,?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET
+           activity_status=CASE WHEN project_activity.activity_status IN ('ACTIVE','LOW_ACTIVITY','DORMANT')
+                                AND excluded.activity_status='UNKNOWN' THEN project_activity.activity_status ELSE excluded.activity_status END,
+           last_meaningful_activity=project_activity.last_meaningful_activity,
+           activity_score=excluded.activity_score,evidence_json=excluded.evidence_json,updated_at=excluded.updated_at""",
+        (project_id, activity_status, None, 95.0 if activity_status in {"FROZEN", "COMPLETED"} else 35.0,
+         json.dumps([_evidence("project_understanding", f"Activity initialized from lifecycle {lifecycle}.")], ensure_ascii=False), stamp),
+    )
+    for workstream in workstreams:
+        ws_status = workstream["lifecycle"] if workstream["lifecycle"] in {"ACTIVE", "FROZEN", "COMPLETED"} else "UNKNOWN"
+        connection.execute(
+            """INSERT INTO workstream_activity(workstream_id,project_id,activity_status,last_meaningful_activity,activity_score,evidence_json,updated_at)
+               VALUES(?,?,?,?,?,?,?) ON CONFLICT(workstream_id) DO UPDATE SET activity_status=excluded.activity_status,
+               activity_score=excluded.activity_score,evidence_json=excluded.evidence_json,updated_at=excluded.updated_at""",
+            (workstream["workstream_id"], project_id, ws_status, None, 90.0 if ws_status != "UNKNOWN" else 30.0,
+             json.dumps(workstream["evidence"], ensure_ascii=False), stamp),
+        )
+    timeline_run = f"understand:{project_id}:{stamp}"
+
+    def emit(event_type: str, *, importance: str, score: float, subject_type: str = "project", **values: Any) -> None:
+        append_event(connection, {
+            "event_type": event_type, "occurred_at": stamp, "subject_type": subject_type,
+            "project_id": project_id, "run_id": timeline_run, "semantic_importance": importance,
+            "importance_score": score, "importance_reasons": [f"Evidence graph delta produced {event_type}."],
+            "confidence": values.pop("confidence", 0.95), "evidence": values.pop("evidence", []),
+            "permanent": importance in {"HIGH", "VERY_HIGH"}, **values,
+        })
+
+    if previous_project is None:
+        emit(
+            "PROJECT_CREATED", importance="MEDIUM", score=48, new_value={"name": project_name, "purpose": project["purpose"]},
+            evidence=[_evidence("project_understanding", "First evidence-backed Project graph was materialized.")],
+        )
+    for workstream in workstreams:
+        prior = previous_workstreams.get(workstream["workstream_id"])
+        if prior is None:
+            emit(
+                "WORKSTREAM_CREATED", importance="MEDIUM", score=42, subject_type="workstream",
+                workstream_id=workstream["workstream_id"], new_value={"name": workstream["name"], "status": workstream["lifecycle"]},
+                confidence=workstream["confidence"], evidence=workstream["evidence"],
+            )
+        elif prior.get("lifecycle") != workstream["lifecycle"]:
+            emit(
+                "WORKSTREAM_STATUS_CHANGED", importance="MEDIUM", score=54, subject_type="workstream",
+                workstream_id=workstream["workstream_id"], old_value=prior.get("lifecycle"), new_value=workstream["lifecycle"],
+                confidence=workstream["confidence"], evidence=workstream["evidence"],
+            )
+    if previous_project is not None:
+        authority_deltas = []
+        for key, asset in assets.items():
+            prior = previous_assets.get(key)
+            old_level = prior.get("authority_level") if prior else None
+            if old_level != asset["authority_level"] and asset["authority_level"] in IMPORTANT_AUTHORITIES:
+                authority_deltas.append((key, old_level, asset))
+        for key, old_level, asset in authority_deltas[:100]:
+            file_row = record_lookup.get(key, {})
+            emit(
+                "AUTHORITY_CHANGED", importance="HIGH", score=78, subject_type=asset["asset_kind"],
+                file_id=file_row.get("file_id"), path_key=key, path_after=asset["path"],
+                workstream_id=asset.get("workstream_id"), old_value=old_level, new_value={
+                    "authority_level": asset["authority_level"], "authority_scope": asset["authority_scope"],
+                }, confidence=asset["confidence"], evidence=asset["evidence"],
+            )
+        current_dependencies = {row["edge_id"]: dict(row) for row in connection.execute("SELECT * FROM dependencies WHERE project_id=?", (project_id,))}
+        added = sorted(set(current_dependencies) - set(previous_dependencies))
+        removed = sorted(set(previous_dependencies) - set(current_dependencies))
+        if added:
+            emit("DEPENDENCY_ADDED", importance="LOW", score=32, subject_type="dependency", aggregate_count=len(added),
+                 new_value={"count": len(added), "sample_edge_ids": added[:20]}, evidence=[_evidence("dependency_graph_diff", "New resolved or unresolved references appeared.")])
+        if removed:
+            emit("DEPENDENCY_REMOVED", importance="MEDIUM", score=42, subject_type="dependency", aggregate_count=len(removed),
+                 old_value={"count": len(removed), "sample_edge_ids": removed[:20]}, evidence=[_evidence("dependency_graph_diff", "Previously observed reference edges are absent.")])
+    if len(duplicates) > previous_duplicate_count:
+        emit("DUPLICATE_DETECTED", importance="MEDIUM", score=46, subject_type="duplicate", aggregate_count=len(duplicates) - previous_duplicate_count,
+             new_value={"new_exact_duplicate_evidence": len(duplicates) - previous_duplicate_count},
+             evidence=[_evidence("content_similarity", "Stage-2 full SHA-256 verified exact equality.")])
+    prior_archive = sum(1 for asset in previous_assets.values() if str(asset.get("archive_recommendation") or "").startswith("REVIEW_"))
+    if len(archive_assets) > prior_archive:
+        emit("ARCHIVE_CANDIDATE_DETECTED", importance="LOW", score=34, subject_type="archive_candidate", aggregate_count=len(archive_assets) - prior_archive,
+             new_value={"new_review_candidates": len(archive_assets) - prior_archive},
+             evidence=[_evidence("project_understanding", "Archive candidates remain review-only and do not authorize file actions.")])
+    if commit:
+        connection.commit()
+    all_authorities = sorted(
         (
             {
                 "path": asset["path"], "role": asset["role"], "authority_level": asset["authority_level"],
                 "confidence": asset["confidence"], "evidence": asset["evidence"],
+                "asset_kind": asset["asset_kind"], "authority_scope": asset["authority_scope"],
+                "authority_context_id": asset["authority_context_id"],
             }
             for asset in assets.values()
             if asset["authority_level"] in {"PRIMARY", "CANONICAL", "ACTIVE"}
         ),
         key=lambda item: (-item["confidence"], item["path"].casefold()),
     )
+    authorities = [item for item in all_authorities if item["authority_scope"] in {"PROJECT_WIDE", "FILE_LOCAL"}]
+    scoped_authorities = [item for item in all_authorities if item["authority_scope"] in {"WORKSTREAM_LOCAL", "GATE_LOCAL"}]
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "project": project,
         "workstreams": workstreams,
         "authorities": authorities[:100],
-        "authority_total": len(authorities),
+        "scoped_authorities": scoped_authorities[:100],
+        "authority_total": len(all_authorities),
+        "authority_scope_counts": dict(Counter(item["authority_scope"] for item in all_authorities)),
+        "tool_roles": tool_roles,
         "dependencies": {"total": len(dependency_rows), "resolved": sum(1 for item in dependency_rows if item["resolution_status"] == "resolved_existing")},
         "duplicates": len(duplicates),
         "archive_candidates": len(archive_assets),
@@ -797,6 +1040,7 @@ def understand_project(
             )[:10],
         },
         "hashes": hash_metrics,
+        "timeline_run_id": timeline_run,
         "physical_actions": 0,
     }
 
@@ -806,18 +1050,33 @@ def asset_details(connection: sqlite3.Connection, path: Path) -> dict[str, Any]:
     row = connection.execute(
         """SELECT f.*,a.role,a.authority_level,a.confidence,a.evidence_json,a.provenance_type,
                   a.rebuildability,a.archive_recommendation,a.superseded_by_path_key,a.workstream_id,
+                  a.asset_kind,a.entity_path,a.authority_scope,a.authority_context_id,
                   p.name AS understood_project,p.purpose,p.lifecycle
            FROM files f LEFT JOIN assets a ON a.path_key=f.path_key
            LEFT JOIN projects p ON p.project_id=a.project_id WHERE f.path_key=?""",
         (path_key,),
     ).fetchone()
     if row is None:
-        raise ValueError(f"Asset is not in the catalog: {path}")
-    item = dict(row)
+        row = connection.execute(
+            """SELECT a.*,p.name AS understood_project,p.purpose,p.lifecycle FROM assets a
+               LEFT JOIN projects p ON p.project_id=a.project_id WHERE a.path_key=?""", (path_key,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Asset is not in the catalog: {path}")
+        item = {**dict(row), "path": str(path), "status": "present" if path.exists() else "missing", "size": None, "full_sha256": None}
+    else:
+        item = dict(row)
     item["evidence"] = json.loads(item.pop("evidence_json") or "[]")
     item["incoming_references"] = [dict(edge) for edge in connection.execute("SELECT * FROM dependencies WHERE target_path_key=? OR resolved_path=?", (path_key, str(path.resolve())))]
     item["outgoing_references"] = [dict(edge) for edge in connection.execute("SELECT * FROM dependencies WHERE source_path_key=?", (path_key,))]
     item["identity_events"] = [dict(event) for event in connection.execute("SELECT * FROM identity_events WHERE source_path_key=? OR target_path_key=?", (path_key, path_key))]
+    file_id = item.get("file_id")
+    item["timeline_events"] = [
+        dict(event) for event in connection.execute(
+            "SELECT event_id,event_type,occurred_at,semantic_importance,importance_score,path_before,path_after,confidence,resolution_status FROM events WHERE file_id=? OR path_key=? ORDER BY occurred_at DESC LIMIT 100",
+            (file_id, path_key),
+        )
+    ]
     item["exact_content_matches"] = []
     if item.get("full_sha256"):
         item["exact_content_matches"] = [

@@ -13,9 +13,11 @@ REAL_ARTIFACT_SUFFIXES = {
 }
 MACHINE_STATE_FILENAMES = {
     "catalog.db", "catalog.sqlite", "baseline.json", "machine_identity.json", "production_state.json",
-    "transaction_result.json", "rollback_manifest.json", "approval_request.json", "journal.jsonl",
+    "transaction_result.json", "rollback_manifest.json", "approval_request.json", "journal.jsonl", "last_changes.json",
+    "events.jsonl", "snapshots.json", "semantic_summary.json", "project_understanding_summary.json",
+    "file intelligence home.html", "computer timeline.html",
 }
-MACHINE_STATE_DIRECTORIES = {"state", "output", "sandbox", "state_backup", "production_baseline"}
+MACHINE_STATE_DIRECTORIES = {"state", "output", "sandbox", "state_backup", "production_baseline", "project_understanding", "migrations"}
 PRIVATE_COMMUNICATION_DIRECTORIES = {"attachments", "communication_records", "chat_exports", "message_exports"}
 IGNORED_DIRECTORIES = {".git", "__pycache__", ".pytest_cache"}
 

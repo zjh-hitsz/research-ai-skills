@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schema_version", "project", "workstreams", "authorities", "dependencies", "physical_actions"],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "project": {
       "type": "object",
       "required": ["project_id", "name", "root_path", "purpose", "lifecycle", "confidence", "evidence"],
@@ -17,6 +17,8 @@
     },
     "workstreams": {"type": "array", "items": {"type": "object"}},
     "authorities": {"type": "array", "items": {"type": "object"}},
+    "scoped_authorities": {"type": "array", "items": {"type": "object"}},
+    "tool_roles": {"type": "array", "items": {"type": "object"}},
     "dependencies": {"type": "object"},
     "physical_actions": {"const": 0}
   },

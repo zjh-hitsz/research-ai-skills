@@ -5,9 +5,9 @@
   "type": "object",
   "required": ["schema_version", "run_id", "mode", "status", "counts", "physical_actions"],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "run_id": {"type": "string"},
-    "mode": {"const": "MAINTENANCE"},
+    "mode": {"enum": ["MAINTENANCE", "WEEKLY_DEEP_MAINTENANCE"]},
     "status": {"enum": ["NO_OP", "CHANGES_RECORDED"]},
     "counts": {"type": "object"},
     "filesystem_changes": {"type": "integer", "minimum": 0},
@@ -15,6 +15,9 @@
     "meaningful_changes": {"type": "integer", "minimum": 0},
     "semantic_status": {"enum": ["NO_MEANINGFUL_CHANGE", "MEANINGFUL_CHANGE"]},
     "identity_events": {"type": "object"},
+    "events_recorded": {"type": "integer", "minimum": 0},
+    "semantic_summary": {"type": "object"},
+    "snapshot": {"type": "object"},
     "physical_actions": {"const": 0}
   },
   "additionalProperties": true

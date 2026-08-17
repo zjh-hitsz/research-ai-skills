@@ -1,4 +1,4 @@
 interface:
   display_name: "File Intelligence"
-  short_description: "Understand private Windows files and research projects read-only"
-  default_prompt: "Use $file-intelligence to maintain this computer's private file knowledge base or explain a project, asset authority, dependency, identity, and archive-review evidence without changing files."
+  short_description: "Remember Windows file and project changes read-only"
+  default_prompt: "Use $file-intelligence to explain what changed on this computer, summarize recent project and storage activity, or inspect a file's evidence-backed history without changing files."
