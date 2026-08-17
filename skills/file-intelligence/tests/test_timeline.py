@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from file_intelligence.database import inspect_schema
+from file_intelligence.database import connect_current, inspect_schema
 from file_intelligence.engine import (
     deep_onboard,
     file_history,
@@ -241,6 +241,34 @@ class TimelineTests(unittest.TestCase):
             self.assertTrue(history["events"])
             growth = storage_history(state_dir=state, days=7)
             self.assertIn(growth["status"], {"OK", "INSUFFICIENT_HISTORY"})
+
+            with closing(connect_current(state / "catalog.db")) as connection:
+                connection.execute(
+                    "INSERT INTO runs(run_id,mode,status,created_at,summary_json) VALUES(?,?,?,?,?)",
+                    ("synthetic_cutover", "STATE_CUTOVER", "COMPLETED", "2000-01-01T00:00:00+00:00", "{}"),
+                )
+                connection.execute(
+                    """INSERT INTO snapshots(
+                        snapshot_id,created_at,snapshot_kind,run_id,files_count,logical_size,
+                        project_count,active_projects,frozen_projects,authority_asset_count,aggregate_size,
+                        potential_cleanup,potential_archive,important_asset_summary_json,catalog_digest
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ("synthetic_cutover_snapshot", "2000-01-01T00:00:00+00:00", "manual", "synthetic_cutover",
+                     999, 999999999, 1, 1, 0, 0, 0, 0, 0, "[]", "synthetic"),
+                )
+                connection.execute(
+                    """INSERT INTO project_snapshots(
+                        snapshot_id,project_id,project_name,total_size,file_count,lifecycle,activity_status,
+                        workstream_status_json,authority_summary_json,recent_activity_json
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    ("synthetic_cutover_snapshot", understood["project"]["project_id"], "project_epsilon",
+                     999999999, 999, "UNKNOWN", "UNKNOWN", "[]", "[]", "[]"),
+                )
+                connection.commit()
+            growth = storage_history(state_dir=state, days=7)
+            self.assertEqual(growth["status"], "OK")
+            self.assertEqual(growth["excluded_state_cutover_snapshots"], 1)
+            self.assertNotEqual(growth["from"], "2000-01-01T00:00:00+00:00")
 
     def test_v2_to_v3_additive_migration_is_backup_first_and_rollbackable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -943,13 +943,24 @@ def project_history(connection: sqlite3.Connection, value: str, limit: int = 100
 
 
 def storage_growth(connection: sqlite3.Connection, *, days: int = 7, project: str | None = None) -> dict[str, Any]:
-    end = connection.execute("SELECT * FROM snapshots ORDER BY created_at DESC,rowid DESC LIMIT 1").fetchone()
+    comparable = """NOT EXISTS(
+        SELECT 1 FROM runs r WHERE r.run_id=snapshots.run_id AND r.mode='STATE_CUTOVER'
+    )"""
+    end = connection.execute(
+        f"SELECT * FROM snapshots WHERE {comparable} ORDER BY created_at DESC,rowid DESC LIMIT 1"
+    ).fetchone()
     if end is None:
         return {"status": "NO_SNAPSHOTS", "days": days, "projects": [], "physical_actions": 0}
     target = (_utc(end["created_at"]) - timedelta(days=max(0, days))).isoformat(timespec="seconds")
-    start = connection.execute("SELECT * FROM snapshots WHERE created_at<=? ORDER BY created_at DESC,rowid DESC LIMIT 1", (target,)).fetchone()
+    start = connection.execute(
+        f"SELECT * FROM snapshots WHERE {comparable} AND created_at<=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+        (target,),
+    ).fetchone()
     if start is None:
-        start = connection.execute("SELECT * FROM snapshots WHERE snapshot_id!=? ORDER BY created_at ASC LIMIT 1", (end["snapshot_id"],)).fetchone()
+        start = connection.execute(
+            f"SELECT * FROM snapshots WHERE {comparable} AND snapshot_id!=? ORDER BY created_at ASC LIMIT 1",
+            (end["snapshot_id"],),
+        ).fetchone()
     if start is None:
         return {"status": "INSUFFICIENT_HISTORY", "days": days, "from": None, "to": end["created_at"], "projects": [], "physical_actions": 0}
     clauses = ""
@@ -964,7 +975,12 @@ def storage_growth(connection: sqlite3.Connection, *, days: int = 7, project: st
     )]
     return {
         "status": "OK", "days": days, "from": start["created_at"], "to": end["created_at"],
-        "machine_size_delta": int(end["logical_size"]) - int(start["logical_size"]), "projects": rows, "physical_actions": 0,
+        "machine_size_delta": int(end["logical_size"]) - int(start["logical_size"]), "projects": rows,
+        "excluded_state_cutover_snapshots": int(connection.execute(
+            """SELECT COUNT(*) FROM snapshots s JOIN runs r ON r.run_id=s.run_id
+               WHERE r.mode='STATE_CUTOVER'"""
+        ).fetchone()[0]),
+        "physical_actions": 0,
     }
 
 
