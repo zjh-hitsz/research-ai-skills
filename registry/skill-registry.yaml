@@ -1,25 +1,96 @@
-registry_version: 1.0.0
-repository_version: 0.3.0
+registry_version: 1.1.0
+repository_version: 0.4.0
 skills:
   - name: validate-simulation-evidence
     version: 0.2.0
     status: implementation
     dependencies: []
+    description: Validate configured simulation evidence gates, conservation checks, connectivity, convergence, and claim boundaries without deciding scientific truth.
+    discovery:
+      capability_tags: [simulation-validation, evidence-gates, conservation, convergence]
+      domains: [simulation, CFD, CHT, numerical-methods]
+      trigger_concepts:
+        - concept: simulation-evidence-validation
+          examples:
+            en: [validate simulation evidence, mesh convergence, claim evidence]
+            zh: [验证仿真证据, 网格无关性, 结果能否支持论文]
+      context_signals: [evidence, evidence gap, not validated, convergence unknown, 证据, 证据缺口, 尚未验证]
+      limitations:
+        - Does not prove scientific correctness or authorize a Claim.
+      execution_class: read-only
+
   - name: map-physical-fields
     version: 0.1.0
     status: implementation
-    dependencies:
-      - validate-simulation-evidence
+    dependencies: [validate-simulation-evidence]
+    description: Validate and conservatively transfer regular two-dimensional scalar fields between compatible grids with explicit conservation evidence.
+    discovery:
+      capability_tags: [physical-field-mapping, interpolation, scalar-fields, conservation]
+      domains: [simulation, CFD, CHT, data-transfer]
+      trigger_concepts:
+        - concept: physical-field-transfer
+          examples:
+            en: [map a temperature field, transfer heat flux between grids, scalar-field interpolation]
+            zh: [物理场映射, 温度场插值到另一网格, 热流密度传递]
+      context_signals: [temperature field, heat flux, mesh mapping, 温度场, 热流密度]
+      limitations:
+        - Supports regular 2D scalar fields only; it is not a general mesh mapper.
+      execution_class: deterministic-transform
+
   - name: audit-research-project
     version: 0.1.0
     status: implementation
     dependencies: []
+    description: Inventory and audit a research-computing project read-only, separating facts, heuristic risks, authority candidates, and human decisions.
+    discovery:
+      capability_tags: [project-audit, file-inventory, path-risk, authority-review]
+      domains: [research-computing, project-governance, reproducibility]
+      trigger_concepts:
+        - concept: research-project-audit
+          examples:
+            en: [audit this research project, inventory project files, check project risks]
+            zh: [审计科研项目, 盘点项目文件, 检查项目结构和风险, 有什么问题]
+      context_signals: [project risk, missing, missing output, absolute path, 项目风险, 文件缺失]
+      limitations:
+        - Does not delete, move, archive, or choose scientifically authoritative files.
+      execution_class: read-only
+
   - name: handoff-research-work
     version: 0.1.0
     status: implementation
-    dependencies:
-      - audit-research-project
+    dependencies: [audit-research-project]
+    description: Freeze an explicitly selected audited snapshot into a deterministic, verifiable continuation handoff without copying private or large dependencies.
+    discovery:
+      capability_tags: [research-handoff, continuation, manifest, regression-evidence]
+      domains: [research-computing, collaboration, continuity]
+      trigger_concepts:
+        - concept: research-work-handoff
+          examples:
+            en: [prepare a research handoff, freeze a continuation package, create a handoff manifest]
+            zh: [准备科研交接, 跨电脑继续研究, 生成可验证交接清单]
+      context_signals: [handoff, continuation, regression record, 交接, 跨电脑继续]
+      limitations:
+        - Requires a reviewed upstream audit and does not execute recorded commands.
+      execution_class: deterministic-transform
+
   - name: file-intelligence
     version: 0.3.0
     status: released
     dependencies: []
+    description: Maintain a private read-only Windows file and project change-history knowledge base with lightweight snapshots and semantic timeline summaries.
+    discovery:
+      capability_tags: [file-intelligence, change-history, project-discovery, windows-files]
+      domains: [Windows, file-management, research-computing, project-history]
+      trigger_concepts:
+        - concept: important-file-changes
+          examples:
+            en: [what important research files changed recently, show project changes on my computer, summarize recent file activity]
+            zh: [我电脑最近有哪些科研文件发生了重要变化, 最近项目文件改了什么, 汇总本机科研文件变化]
+        - concept: private-file-inventory
+          examples:
+            en: [build a private file inventory, understand projects on this Windows computer]
+            zh: [建立私有文件索引, 理解这台 Windows 电脑上的项目]
+      context_signals: [recent changes, file timeline, storage growth, 最近变化, 文件时间线]
+      limitations:
+        - Never moves, deletes, renames, archives, or uploads user files.
+      execution_class: local-read-only-index
